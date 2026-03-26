@@ -7,3 +7,7 @@ Thumbs.db
 /tmp/
 dist/
 .env
+.claude/
+# Generated site output — not committed
+integration-test/output/
+test-fixture/output/
