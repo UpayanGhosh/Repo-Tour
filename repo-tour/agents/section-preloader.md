@@ -33,8 +33,9 @@ Output JSON:
 
 Rules:
 - Focus on BEHAVIOR not syntax
-- MAX 150 tokens per file
-- MAX 2000 tokens total
+- MAX 250 tokens per file
+- MAX 2500 tokens total
 - Flag large_file: true for Tier 3 files
 - Flag mega_file: true for Tier 4 files
 - The content writer will NOT read raw files — your briefing IS their source material
+- Prompt caching: the system prompt for this agent is identical across all section-preloader calls — cache_control applies automatically to reduce cost on repeated calls

@@ -318,6 +318,181 @@ def detect_stack(repo_path: str) -> dict:
     elif (root / '.gitlab-ci.yml').exists():
         stack['ci'] = 'GitLab CI'
 
+    # --- Monorepo detection (orthogonal to language chain) ---
+    monorepo = {'type': 'none', 'packages': [], 'boundary_rules': [], 'tag_system': ''}
+
+    if (root / 'nx.json').exists():
+        monorepo['type'] = 'nx'
+        try:
+            nx_data = json.loads((root / 'nx.json').read_text(encoding='utf-8', errors='ignore'))
+            # nx.json may contain projects directly or reference project.json files
+            projects = nx_data.get('projects', {})
+            if isinstance(projects, dict):
+                for name, proj_cfg in list(projects.items())[:30]:
+                    path = proj_cfg.get('root', name) if isinstance(proj_cfg, dict) else name
+                    monorepo['packages'].append({'name': name, 'path': path, 'type': 'app'})
+            elif isinstance(projects, list):
+                for p in projects[:30]:
+                    monorepo['packages'].append({'name': p, 'path': p, 'type': 'app'})
+            # Also scan for project.json files in apps/ and libs/ (common Nx layout)
+            if not monorepo['packages']:
+                for proj_json in list(root.rglob('project.json'))[:30]:
+                    try:
+                        pdata = json.loads(proj_json.read_text(encoding='utf-8', errors='ignore'))
+                        pname = pdata.get('name', proj_json.parent.name)
+                        ptype = 'lib' if 'lib' in str(proj_json.parent) else 'app'
+                        monorepo['packages'].append({
+                            'name': pname,
+                            'path': str(proj_json.parent.relative_to(root)).replace('\\', '/'),
+                            'type': ptype
+                        })
+                    except Exception:
+                        pass
+            tag_config = nx_data.get('targetDefaults') or nx_data.get('tasksRunnerOptions', {})
+            monorepo['tag_system'] = 'nx tags' if tag_config else ''
+        except Exception:
+            pass
+
+    elif (root / 'turbo.json').exists():
+        monorepo['type'] = 'turborepo'
+        try:
+            turbo_data = json.loads((root / 'turbo.json').read_text(encoding='utf-8', errors='ignore'))
+            pipeline = turbo_data.get('pipeline', turbo_data.get('tasks', {}))
+            monorepo['boundary_rules'] = list(pipeline.keys())[:10]
+        except Exception:
+            pass
+        # List packages/ and apps/ subdirs
+        for subdir in ('packages', 'apps'):
+            candidate = root / subdir
+            if candidate.is_dir():
+                for item in sorted(candidate.iterdir()):
+                    if item.is_dir() and not item.name.startswith('.'):
+                        ptype = 'app' if subdir == 'apps' else 'lib'
+                        monorepo['packages'].append({
+                            'name': item.name,
+                            'path': f'{subdir}/{item.name}',
+                            'type': ptype
+                        })
+                        if len(monorepo['packages']) >= 30:
+                            break
+
+    elif (root / 'pnpm-workspace.yaml').exists():
+        monorepo['type'] = 'pnpm-workspaces'
+        try:
+            import re as _re
+            ws_text = (root / 'pnpm-workspace.yaml').read_text(encoding='utf-8', errors='ignore')
+            # Simple YAML pattern extraction for packages list
+            globs = _re.findall(r"[-]\s+'?\"?([^'\"\n]+)'?\"?", ws_text)
+            for g in globs[:30]:
+                g = g.strip()
+                # Expand simple globs (e.g. packages/*)
+                if '*' in g:
+                    base = g.split('*')[0].rstrip('/')
+                    candidate = root / base
+                    if candidate.is_dir():
+                        for item in sorted(candidate.iterdir()):
+                            if item.is_dir() and not item.name.startswith('.'):
+                                monorepo['packages'].append({
+                                    'name': item.name,
+                                    'path': f'{base}/{item.name}',
+                                    'type': 'lib'
+                                })
+                                if len(monorepo['packages']) >= 30:
+                                    break
+                else:
+                    candidate = root / g
+                    if candidate.is_dir():
+                        monorepo['packages'].append({'name': g.split('/')[-1], 'path': g, 'type': 'lib'})
+        except Exception:
+            pass
+
+    elif (root / 'package.json').exists():
+        # Yarn workspaces — package.json with workspaces field
+        try:
+            pkg_data = json.loads((root / 'package.json').read_text(encoding='utf-8', errors='ignore'))
+            ws = pkg_data.get('workspaces', [])
+            if isinstance(ws, dict):
+                ws = ws.get('packages', [])
+            if ws:
+                monorepo['type'] = 'yarn-workspaces'
+                import re as _re
+                for g in ws[:30]:
+                    if '*' in g:
+                        base = g.split('*')[0].rstrip('/')
+                        candidate = root / base
+                        if candidate.is_dir():
+                            for item in sorted(candidate.iterdir()):
+                                if item.is_dir() and not item.name.startswith('.'):
+                                    monorepo['packages'].append({
+                                        'name': item.name,
+                                        'path': f'{base}/{item.name}',
+                                        'type': 'lib'
+                                    })
+                                    if len(monorepo['packages']) >= 30:
+                                        break
+                    else:
+                        candidate = root / g
+                        if candidate.is_dir():
+                            monorepo['packages'].append({'name': g.split('/')[-1], 'path': g, 'type': 'lib'})
+        except Exception:
+            pass
+
+    if monorepo['type'] == 'none' and (root / 'lerna.json').exists():
+        monorepo['type'] = 'lerna'
+        try:
+            lerna_data = json.loads((root / 'lerna.json').read_text(encoding='utf-8', errors='ignore'))
+            pkgs = lerna_data.get('packages', ['packages/*'])
+            import re as _re
+            for g in pkgs[:30]:
+                if '*' in g:
+                    base = g.split('*')[0].rstrip('/')
+                    candidate = root / base
+                    if candidate.is_dir():
+                        for item in sorted(candidate.iterdir()):
+                            if item.is_dir() and not item.name.startswith('.'):
+                                monorepo['packages'].append({
+                                    'name': item.name,
+                                    'path': f'{base}/{item.name}',
+                                    'type': 'lib'
+                                })
+                                if len(monorepo['packages']) >= 30:
+                                    break
+        except Exception:
+            pass
+
+    if monorepo['type'] == 'none' and (root / 'WORKSPACE').exists():
+        monorepo['type'] = 'bazel'
+
+    stack['monorepo'] = monorepo
+
+    # --- Additional patterns detection ---
+    additional_patterns = []
+
+    # MediatR/.NET CQRS
+    if stack.get('primary_language') == 'C#':
+        csproj_files = list(root.rglob('*.csproj'))
+        cs_text = ''
+        for f in csproj_files[:3]:
+            try:
+                cs_text += f.read_text(encoding='utf-8', errors='ignore').lower()
+            except Exception:
+                pass
+        if 'mediatr' in cs_text:
+            additional_patterns.append('MediatR')
+            additional_patterns.append('CQRS')
+
+    # gRPC/Go
+    if stack.get('primary_language') == 'Go':
+        try:
+            go_text = (root / 'go.mod').read_text(encoding='utf-8', errors='ignore').lower()
+            if 'google.golang.org/grpc' in go_text:
+                additional_patterns.append('gRPC')
+        except Exception:
+            pass
+
+    if additional_patterns:
+        stack['additional_patterns'] = additional_patterns
+
     result = {'stack': stack, '_token_estimate': 0}
     output_str = json.dumps(result)
     result['_token_estimate'] = estimate_tokens(output_str)

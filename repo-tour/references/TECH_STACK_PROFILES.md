@@ -110,6 +110,12 @@ Use this during Phase 1 to prioritize which files to send to Haiku agents first.
 
 **Entry point**: `manage.py`, `wsgi.py`, `asgi.py`
 
+**Signal usage map**: `@receiver(post_save, sender=Order)` means `OrderService.save()` triggers hidden side effects. Detect signals via `@receiver`, `post_save.connect()`, `pre_delete.connect()`. Document each signal: sender model, signal type (post_save/pre_delete/etc.), and side effect description. Signals create invisible dependencies that break when models are renamed or deleted.
+
+**Celery task inventory**: `@shared_task` and `@app.task` functions are an async codebase embedded in Django. Detect in `tasks.py` files across all Django apps. Document for each task: task name (Python dotted path), retry logic (`max_retries`, `autoretry_for`), and expected execution time. Celery tasks are often untested and undocumented despite being business-critical.
+
+**Custom manager/queryset documentation**: `MyModel.objects.active()` hides business rules. Document any non-standard manager methods defined via `Manager` subclass or `QuerySet` subclass with `as_manager()`. These methods encode business concepts (e.g., `active()`, `published()`, `for_user(user)`) that are invisible without reading the model file.
+
 ---
 
 ## Flask (Python)
@@ -170,6 +176,10 @@ Use this during Phase 1 to prioritize which files to send to Haiku agents first.
 - `@Bean` — bean definition
 
 **Entry point**: Class with `@SpringBootApplication` + `main()` calling `SpringApplication.run()`
+
+**`@Profile` and `@ConditionalOnProperty` documentation**: `@Profile("prod")` means a bean only exists in production; `@ConditionalOnProperty(name="feature.x.enabled", havingValue="true")` means it only activates when a config flag is set. Detect via `@Profile`, `@ConditionalOnProperty`, `@ConditionalOnMissingBean`, `@ConditionalOnClass`. Document for each conditional bean: which profile/property activates it, what it replaces in other environments, and why. Critical for new devs who wonder why a bean exists in production but not locally.
+
+**Spring Security config explanation pattern**: `SecurityFilterChain` is where authentication and authorization happen — always document it. The `@Bean SecurityFilterChain` method in your `@Configuration` class defines: which endpoints require authentication, which require specific roles (`hasRole("ADMIN")`), the auth mechanism (JWT filter, OAuth2, form login, HTTP Basic), and CSRF/CORS configuration. Document the filter order and which custom filters are added via `addFilterBefore` / `addFilterAfter`.
 
 ---
 
@@ -280,3 +290,174 @@ HTTP request from component → `HttpClient` call in service → HTTP intercepto
 - `DbContext.Set<T>()` — EF Core queries
 
 **Entry point**: `Program.cs` — look for `WebApplication.CreateBuilder()` and `app.Run()`
+
+---
+
+## .NET Enterprise (CQRS/MediatR/DI)
+
+**Where things live**:
+- Commands: `Commands/`, `Application/Commands/` — classes implementing `IRequest<T>`
+- Queries: `Queries/`, `Application/Queries/` — classes implementing `IRequest<T>` (read-only)
+- Handlers: co-located with commands/queries — classes implementing `IRequestHandler<TRequest, TResponse>`
+- Validators: `Validators/` — FluentValidation `AbstractValidator<T>` classes
+- Mappings: `Mappings/`, `Profiles/` — AutoMapper `Profile` subclasses
+- Controllers: `Controllers/` — thin; delegate immediately to `IMediator.Send()`
+- Services: `Services/` — domain services registered in DI
+- Repositories: `Repositories/` — data access, registered as `IRepository<T>`
+- Config: `appsettings.json`, `appsettings.{Environment}.json`, classes bound via `IOptions<T>`
+- Program entry: `Program.cs` — the DI composition root
+
+**Key patterns**:
+- `IMediator.Send(new CreateOrderCommand(...))` — all business operations go through MediatR
+- `IRequest<T>` / `IRequestHandler<TRequest, TResponse>` — command/query handler contract
+- DI lifecycle registrations in `Program.cs` — document WHICH lifecycle and WHY:
+  - `AddSingleton<>()` — one instance for app lifetime (e.g., configuration, caches)
+  - `AddScoped<>()` — one instance per HTTP request (e.g., DbContext, repositories) — CORRECTNESS-AFFECTING: sharing across requests causes bugs
+  - `AddTransient<>()` — new instance each injection (e.g., lightweight stateless services)
+- Middleware pipeline ORDER in `Program.cs` (order matters, rarely documented):
+  - `app.UseExceptionHandler()` must come before `app.UseRouting()`
+  - `app.UseAuthentication()` must come before `app.UseAuthorization()`
+- `IOptions<T>` bound to `appsettings.json` sections — document which config class maps to which JSON path
+- `[MediatR.Behaviors]` pipeline behaviors — cross-cutting concerns (logging, validation, transactions) registered as `IPipelineBehavior<,>`
+
+**Entry point**: `Program.cs` → `WebApplication.CreateBuilder(args)` → service registrations → `app.UseMiddleware...` pipeline → `app.Run()`
+
+**Typical workflow**: HTTP request → `Controller.Action()` → `IMediator.Send(command)` → `IPipelineBehavior` chain (validation → logging → transaction) → `IRequestHandler.Handle()` → repository → DB response
+
+---
+
+## Go Service Mesh (Large-Scale)
+
+**Where things live**:
+- Binaries: `cmd/` — one sub-directory per runnable binary (`cmd/api/`, `cmd/worker/`, `cmd/migrator/`)
+- Private packages: `internal/` — not importable outside the module; domain logic lives here
+- Public packages: `pkg/` — reusable packages safe to import by external modules
+- API contracts: `api/` — `.proto` files (gRPC), OpenAPI specs (`*.yaml`), generated stubs
+- Generated stubs: `*_grpc.pb.go`, `*.pb.go` — DO NOT document internals; document the `.proto` source instead
+- Config: `internal/config/`, `config.go`, loaded via `os.Getenv` or `viper`
+- Makefile: root `Makefile` — the Go team's primary workflow tool
+
+**Key patterns**:
+- Makefile targets — document EVERY target (Go teams live by Makefiles):
+  - `make build` — compiles all binaries in `cmd/`
+  - `make test` — runs unit tests with `-race` flag
+  - `make generate` — runs `go generate ./...` (proto compilation, mocks, etc.)
+  - `make docker` — builds container image
+  - `make migrate` — applies DB migrations
+- Concurrency patterns (document ownership explicitly):
+  - Goroutine ownership: which function spawns it, which owns its lifetime
+  - Channel ownership: which goroutine sends, which receives, buffer size and why
+  - Shutdown sequence: `context.WithCancel(ctx)` passed to all goroutines; `cancel()` on `os.Signal`
+- `go.work` multi-module workspace (Go 1.18+): if `go.work` exists at root, multiple `go.mod` files are in play — list all modules and their roles
+- gRPC: `.proto` files in `api/` are the source of truth; generated `*_grpc.pb.go` are artifacts — document the proto service definitions, not the generated Go code
+- `grpc.UnaryInterceptor` / `grpc.StreamInterceptor` — middleware chain for gRPC (auth, logging, tracing)
+
+**Entry point**: `cmd/*/main.go` → `http.ListenAndServe()` (REST) or `grpc.NewServer()` (gRPC) → service initialization
+
+**Typical workflow**: HTTP/gRPC request → handler → middleware/interceptor chain → service layer (`internal/`) → repository (`internal/store/`) → DB/external service
+
+---
+
+## PHP Laravel Enterprise
+
+**Where things live**:
+- Controllers: `app/Http/Controllers/` — thin; delegate to services
+- Services: `app/Services/` — business logic layer
+- Models: `app/Models/` — Eloquent ORM; contains scopes, accessors, mutators
+- Jobs: `app/Jobs/` — async queue tasks (the hidden second codebase)
+- Events: `app/Events/` — event classes dispatched throughout the app
+- Listeners: `app/Listeners/` — react to events; invisible dependencies that can trigger side effects
+- Policies/Gates: `app/Policies/` — authorization rules per model
+- Form Requests: `app/Http/Requests/` — request validation classes
+- Resources/Collections: `app/Http/Resources/` — API response transformers
+- Service Providers: `app/Providers/` — DI registration hub (especially `AppServiceProvider.php`)
+- Routes: `routes/api.php` (API routes), `routes/web.php` (web routes) — primary entry point documentation
+- Config: `config/` — each file maps to a config key (e.g., `config/database.php`)
+- Migrations: `database/migrations/` — timestamp-ordered schema changes
+
+**Key patterns**:
+- `AppServiceProvider.php` — where all DI bindings are registered: `$this->app->bind(Interface::class, Implementation::class)`
+- Eloquent scopes: `scopeActive($query)` in models → called as `Model::active()` — business logic hidden in models; always document non-standard scope methods
+- Eloquent accessors/mutators: `getFullNameAttribute()` / `setPasswordAttribute()` — transparent field transforms
+- Jobs/Queues: `dispatch(new ProcessOrderJob($order))` — async tasks with retry logic; jobs in `app/Jobs/` are a separate async codebase
+- Events + Listeners: `event(new OrderPlaced($order))` → listeners fire invisibly; document event → listener mappings in `EventServiceProvider.php`
+- Facades: `Cache::get()`, `Queue::push()`, `Log::info()` — static-looking but DI-backed
+
+**Entry point**: `public/index.php` → `bootstrap/app.php` → `Kernel` (HTTP or Console) → route dispatching via `routes/api.php` or `routes/web.php`
+
+**Typical workflow**: HTTP request → `public/index.php` → middleware pipeline (auth, CORS, throttle) → Controller → Service → Eloquent Model → DB; async paths go via Job dispatch → queue worker → Job handler
+
+---
+
+## Rust Workspace (Multi-Crate)
+
+**Where things live**:
+- Workspace root: `Cargo.toml` with `[workspace]` section listing all member crates
+- Crates: `crates/*/` or top-level `src/` for single-crate projects; each crate has its own `Cargo.toml`
+- Binary crates: `src/main.rs` — executable entry points
+- Library crates: `src/lib.rs` — reusable code, no `main()`
+- Feature flags: `[features]` in `Cargo.toml` — conditional compilation affecting public API; document which features are enabled by default and what they gate
+- Build scripts: `build.rs` at crate root — runs at compile time; must be documented (generates code, links native libraries, sets env vars for the build)
+- Error types: `src/error.rs` or `src/errors/` — `thiserror` for library errors (typed, implement `std::error::Error`), `anyhow` for application errors (propagation convenience)
+
+**Key patterns**:
+- `Cargo.toml` `[features]` — `cargo build --features "feature-name"` changes the compiled public API; always document default-features and optional-features
+- `build.rs` — if present, it runs before compilation; check what it generates (e.g., proto stubs, version strings, FFI bindings)
+- Error propagation: `thiserror::Error` derive on library error enums; `anyhow::Result` / `?` operator for application code — understand which crates use which
+- Async runtime: `#[tokio::main]` (Tokio, most common) or `#[async_std::main]` (async-std); look in binary crate's `Cargo.toml` for `tokio = { features = ["full"] }`
+- Trait-based DI: dependencies injected as trait objects (`Box<dyn Repository>`) for testability
+- `pub use` re-exports in `lib.rs` — shapes the public API; what's re-exported IS the public surface
+
+**Entry point**: `src/main.rs` with `#[tokio::main]` (async binary) or `src/lib.rs` for library crates
+
+**Typical workflow**: `main()` → runtime setup (tracing, config) → service initialization (DI wiring) → server bind (`axum::serve` / `tonic::transport::Server`) → request handling → service layer → repository (trait impl) → DB
+
+---
+
+## Nx Workspace
+
+**Where things live**:
+- Apps: `apps/` — deployable applications (Angular, React, Node, etc.); each has a `project.json`
+- Libs: `libs/` — shared libraries; never deployed directly, always consumed by apps or other libs
+- Tools: `tools/` — custom generators, executors, and workspace scripts
+- Root config: `nx.json` — workspace-level settings, `targetDefaults`, `cacheableOperations`, `depConstraints`
+- Per-project config: `project.json` in each app/lib — defines `targets` (build, test, lint, serve), `tags`, and executor config
+
+**Key patterns**:
+- `project.json` targets: each target maps to an executor (e.g., `@nx/angular:build`) with its options; these ARE the build commands
+- Tag system: projects declare `"tags": ["scope:feature-name", "type:feature"]` — tags determine what can import what
+  - `scope:*` tags: which feature domain a project belongs to
+  - `type:feature` — smart component + state, can import ui/data-access/util
+  - `type:ui` — presentational only, no business logic
+  - `type:data-access` — state management, API calls
+  - `type:util` — pure functions, no Angular/React deps
+- `depConstraints` in `nx.json`: these ARE the architectural boundary documentation — e.g., `type:feature` can depend on `type:ui` but not vice versa. Always document the constraint rules.
+- `nx affected`: before changing any shared lib, run `nx affected:graph` to see the blast radius — document which libs are most widely depended-upon (highest fan-in)
+- Caching: `nx.json` `cacheableOperations` — tasks whose outputs are cached; understand before changing shared code
+
+**Entry point**: `apps/*/src/main.ts` (Angular), `apps/*/src/index.tsx` (React), `apps/*/src/main.ts` (Node)
+
+**Typical workflow**: `nx build my-app` → resolves `project.json` targets → executor runs → affected libs built first per dependency graph → output cached to `.nx/cache`
+
+---
+
+## Turborepo
+
+**Where things live**:
+- Apps: `apps/` — deployable applications; each has its own `package.json` with scripts
+- Packages: `packages/` — shared code (UI library, config, TypeScript config, etc.)
+- Root: `turbo.json` — the task dependency pipeline; `package.json` with `workspaces` field
+- Common shared packages: `packages/ui/` (`@repo/ui`), `packages/config/` (`@repo/config`), `packages/tsconfig/` (`@repo/tsconfig`) — understand these before editing anything
+
+**Key patterns**:
+- `turbo.json` pipeline: defines task dependency order and caching rules
+  - `"dependsOn": ["^build"]` — must build dependencies first (the `^` means "run in all deps first")
+  - `"outputs": ["dist/**"]` — what gets cached; Turborepo won't re-run if outputs are unchanged
+  - `"cache": false` — tasks that must always re-run (e.g., `dev`, `start`)
+- Caching strategy: `turbo run build` skips rebuilding packages if their inputs haven't changed; cache keys based on file hashes + env vars listed in `globalEnv`
+- Shared packages: `@repo/ui`, `@repo/config`, `@repo/tsconfig` are consumed by all apps — changes here affect every app; check `turbo affected` before editing
+- `package.json` `workspaces`: glob patterns that tell the package manager which directories are packages (e.g., `["apps/*", "packages/*"]`)
+
+**Entry point**: `apps/*/src/index.ts` or `apps/*/src/main.ts` per app; run via `turbo run dev` from workspace root
+
+**Typical workflow**: `turbo run build` → reads pipeline from `turbo.json` → topological sort of tasks → runs tasks in parallel where no dependency → caches outputs → `apps/*/dist/` produced

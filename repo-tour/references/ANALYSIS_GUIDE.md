@@ -35,12 +35,25 @@ Check `_meta.within_budget` in `repo-analysis.json`. If `false`, reduce `--max-m
 python -c "import json; d=json.load(open('repo-analysis.json')); print(d['_meta'])"
 ```
 
+## Tier 0: Bootstrapper (One Call Before Swarm)
+
+Before dispatching file-reader agents, dispatch ONE Haiku call with:
+- Input: directory tree listing + config files only (package.json, pyproject.toml, go.mod, pom.xml, Cargo.toml, go.work, nx.json, turbo.json)
+- Output: module partition map — which files belong to which domain cluster (~500-1000 tokens)
+- Purpose: enables EXPLICIT file assignment to each Haiku worker (eliminates cold-start)
+- Cost: ~50-100 input tokens, ~500 output tokens — negligible
+
+The partition map determines the file lists passed to each Tier 1 agent.
+Never let Tier 1 agents discover their own file scope.
+
 ## Haiku File-Reader Dispatch Strategy
 
 After scripts complete, dispatch `agents/file-reader.md` to summarize critical modules.
 
+Dispatch 10-15 file-reader agents simultaneously, each with an EXPLICIT non-overlapping file list from the Tier 0 partition map. Never let agents discover their own scope.
+
 **Batching rules**:
-- Files < 500 lines (Tier 1): batch up to 5 per agent call
+- Files < 500 lines (Tier 1): batch up to 10 per agent call
 - Files 500-3000 lines (Tier 2): batch up to 3-4 per agent call
 - Files 3000-10000 lines (Tier 3): solo batch (1 file per call)
 - Files > 10000 lines (Tier 4): DO NOT dispatch — metadata already captured by scripts
@@ -58,6 +71,16 @@ In src/services/auth.ts, find the `verifyToken` and `createSession` functions.
 Answer: (1) What does verifyToken do on failure? (2) What does createSession store?
 Keep response under 200 tokens.
 ```
+
+## Confidence-Based Model Escalation
+
+Tier 1 (Haiku): All filtered files. If output contains needs_review: true → escalate.
+Tier 1.5 (Haiku + thinking, budget_tokens: 2000): Files flagged by Tier 1, single-file scope only.
+Tier 2 (Sonnet): Multi-file scope, security-critical, entry points, files still flagged after 1.5.
+Tier 3 (Sonnet + high effort): Final synthesis only. Never sees raw source code.
+
+Haiku timeout: 90 seconds per agent. Error sentinel: {"path": "...", "status": "error|timeout", "needs_review": true}
+Fallback threshold: If >40% of dispatched agents return error/timeout, abort and fall back to sequential batch-5.
 
 ## Workflow Identification
 
@@ -90,7 +113,21 @@ Trace 2-3 key workflows from entry points through import chains. Look for:
 ]
 ```
 
-Max 3 workflows. Max 8 steps per workflow. Keep action descriptions under 50 chars.
+Max 3 workflows for repos under 500 files; max 8 for 500-2000 files; max 12 for 2000+ files. Max 8 steps each. Keep action descriptions under 50 chars.
+
+Workflow count by repo size:
+| Repo size    | Max workflows | Selection strategy                                    |
+|--------------|---------------|-------------------------------------------------------|
+| < 500 files  | 3             | The 3 most important user-facing flows                |
+| 500-2000     | 8             | 1 per major cluster (capped at 8)                     |
+| 2000+ files  | 12            | Framework-aware: auth + main data flow + create/update + feature-specific flows |
+
+Framework-aware workflow priorities:
+- Angular: route activation → component → service → HTTP → response
+- Spring Boot: HTTP → Controller → Service → Repository → DB
+- .NET (MediatR): HTTP → Controller → IMediator.Send() → IRequestHandler → Repository → DB
+- Django: URL conf → view → serializer → queryset → DB + signal side effects
+- Go: HTTP → handler → middleware chain → service → repository → DB
 
 ## Glossary Candidates
 
@@ -103,14 +140,63 @@ Only add terms a new hire would need defined. Max 15 terms.
 
 ## Edge Cases
 
-**Monorepo**: If `top_dirs` contains `packages/`, `apps/`, `libs/`, or `services/`, ask the user:
-> "This looks like a monorepo with [N] packages. Which package should I focus on, or should I document the whole repo?"
+**Monorepo**: If `detect_stack.py` returns `stack.monorepo.type != "none"` (Nx, Turborepo, pnpm-workspaces, etc.), do NOT ask the user. Instead:
+1. Read `stack.monorepo.packages` — enumerate all workspace packages with their paths and types
+2. Identify the primary consumer app (type: "app") vs shared libraries (type: "lib")
+3. Document ALL packages in the feature index and architecture, not just one
+4. For the Modules section, focus on the primary app + its most-used shared libs
+5. The Codebase Map section will show the full workspace package tree automatically
+
+If `stack.monorepo.type == "none"` but `top_dirs` contains `packages/`, `apps/`, `libs/`, or `services/`, treat it as an undeclared workspace and document all top-level subdirectories as packages.
 
 **No clear entry point**: Check `package.json scripts`, `Makefile` targets, `Procfile`. If still unclear, note it in the overview section: "Entry points unclear — this may be a library or utility package."
 
 **Polyglot repos**: Analyze the primary language first (highest file count by extension). Note secondary languages in `stack.additional_languages`.
 
-**Generated code**: Files with "DO NOT EDIT" / "auto-generated" in first 10 lines — include in architecture as "Generated code (do not document internals)" but skip for module analysis.
+**Generated code**: Files with "DO NOT EDIT" / "auto-generated" in first 10 lines — these are captured in `generated-surfaces.json` (sidecar file) with their API surface extracted from type signatures and exports. Do NOT skip them. Do NOT document their internals. DO document what they expose:
+- NSwag/OpenAPI clients: list the available API operations (method names)
+- Protobuf stubs: list the service methods and message types
+- GraphQL codegen: list the generated query hooks/operations
+- ORM migrations: note the migration history (timestamps + brief descriptions)
+Include in the architecture as "Generated API Layer" with a reference to the source spec.
+
+## Sidecar Files
+
+Sidecar files (written alongside repo-analysis.json, NOT inside it):
+
+### feature-index.json
+Schema: `[{"path": "string", "name": "string", "role": "string", "loc": int, "cluster": "string"}]`
+Generated by: `map_dependencies.py --output-feature-index feature-index.json`
+Up to 500 entries (uncapped module list — covers entire codebase).
+Used by: Phase 2 Cookbook section (grounding check), Codebase Map website section.
+
+### generated-surfaces.json
+Schema:
+```json
+[{
+  "path": "string",
+  "generator_hint": "NSwag/OpenAPI|protobuf|GraphQL-codegen|openapi-generator|orm-migration|other",
+  "source_spec": "string|null",  // path to .proto, openapi.yaml, schema.graphql, etc.
+  "endpoints": ["string"],       // operation/method names extracted from exports
+  "loc": 0,
+  "note": "string"               // e.g. "Generated from UserService OpenAPI spec. Edit source spec, not this file."
+}]
+```
+Generated by: `scan_repo.py --output-generated-surfaces generated-surfaces.json`
+Detection signals (in order of confidence):
+1. NSwag: `nswag.json` in repo root or `src/`, TypeScript files with `NSwagStudio` comment
+2. Protobuf: `*.pb.ts`, `*.pb.go`, `*_pb2.py`, `*_grpc.py`, `*_pb.d.ts`
+3. GraphQL codegen: `__generated__/` directory, `// @generated` header comment
+4. OpenAPI generator: files with `openapi-generator` in first 5 lines
+5. ORM migrations: files in `migrations/` with timestamp prefix (e.g. `0001_`, `20240101_`)
+6. Generic: "DO NOT EDIT" or "auto-generated" in first 10 lines
+Used by: Phase 2 Generated APIs section, Architecture section.
+
+Only summary stats go into repo-analysis.json:
+```json
+"feature_index_summary": {"total_modules": 847, "clusters": 12},
+"generated_surfaces_count": 3
+```
 
 ## Full repo-analysis.json Schema
 

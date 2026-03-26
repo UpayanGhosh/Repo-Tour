@@ -232,17 +232,37 @@ def map_dependencies(repo_path: str, language: str = None, max_modules: int = 15
             if imp in modules:
                 modules[imp]['imported_by'].append(path)
 
-    # Sort by complexity descending, cap at max_modules
+    # Build feature_index BEFORE cap (on full module list), cap at 500
     sorted_modules = sorted(modules.values(), key=lambda m: -m['complexity'])
+    feature_index = [
+        {
+            'path': m['path'],
+            'name': m['path'].split('/')[-1],
+            'role': m['role'],
+            'loc': m['loc'],
+            'cluster': ''  # filled in below after cluster detection
+        }
+        for m in sorted_modules
+    ][:500]
+
+    # Detect clusters on FULL module list (not capped) — fixes pre-existing bug
+    clusters = _detect_clusters(list(modules.values()))
+
+    # Annotate feature_index entries with their cluster
+    path_to_cluster = {}
+    for cl in clusters:
+        for f in cl.get('files', []):
+            path_to_cluster[f] = cl['name']
+    for entry in feature_index:
+        entry['cluster'] = path_to_cluster.get(entry['path'], '')
+
+    # Now cap critical_modules
     critical = sorted_modules[:max_modules]
 
     # Trim imports/imported_by lists
     for m in critical:
         m['imports'] = m['imports'][:10]
         m['imported_by'] = m['imported_by'][:10]
-
-    # Detect clusters
-    clusters = _detect_clusters(critical)
 
     # External deps from package files
     external_deps = _get_external_deps(root, language)
@@ -255,6 +275,11 @@ def map_dependencies(repo_path: str, language: str = None, max_modules: int = 15
         'clusters': clusters,
         'external_deps_top10': external_deps[:10],
         'circular_warnings': circular_warnings[:5],
+        'feature_index_summary': {
+            'total_modules': len(feature_index),
+            'clusters': len(clusters)
+        },
+        '_feature_index': feature_index,  # written to sidecar, not forwarded to repo-analysis.json
         '_token_estimate': 0
     }
 
@@ -370,11 +395,12 @@ def _find_circular(modules: dict) -> list:
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: map_dependencies.py <repo_path> [--language LANG] [--max-modules N]', file=sys.stderr)
+        print('Usage: map_dependencies.py <repo_path> [--language LANG] [--max-modules N] [--output-feature-index PATH]', file=sys.stderr)
         sys.exit(1)
 
     lang = None
     max_mods = 15
+    feature_index_out = None
     args = sys.argv[2:]
     i = 0
     while i < len(args):
@@ -384,8 +410,20 @@ if __name__ == '__main__':
         elif args[i] == '--max-modules' and i + 1 < len(args):
             max_mods = int(args[i + 1])
             i += 2
+        elif args[i] == '--output-feature-index' and i + 1 < len(args):
+            feature_index_out = args[i + 1]
+            i += 2
         else:
             i += 1
 
     output = map_dependencies(sys.argv[1], lang, max_mods)
+
+    # Write feature-index.json sidecar if requested
+    if feature_index_out:
+        feature_index = output.pop('_feature_index', [])
+        Path(feature_index_out).write_text(json.dumps(feature_index, indent=2), encoding='utf-8')
+        print(f'Wrote feature index ({len(feature_index)} entries) to {feature_index_out}', file=sys.stderr)
+    else:
+        output.pop('_feature_index', None)
+
     print(json.dumps(output, indent=2))

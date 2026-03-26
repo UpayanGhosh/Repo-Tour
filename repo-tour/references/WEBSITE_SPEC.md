@@ -11,9 +11,9 @@
 Single-page application. All sections are on one scrollable page. Navigation highlights the active section via IntersectionObserver.
 
 ```
-Layout: fixed sidebar (280px left) + scrollable main content
+Layout: fixed sidebar (240px left) + scrollable main content
 Mobile: sidebar becomes a drawer (hidden off-screen, toggled by hamburger button)
-Max content width: 860px, centered
+Max content width: 680px, centered
 ```
 
 ## Navigation (Sidebar)
@@ -22,19 +22,20 @@ Max content width: 860px, centered
 - Lists all sections with scroll-to-section links
 - Active section highlighted as user scrolls (IntersectionObserver)
 - Module subsections collapsible under "Modules" parent link
-- On mobile: transform: translateX(-280px) by default, toggled by hamburger button
+- On mobile: transform: translateX(-240px) by default, toggled by hamburger button
 
 ## Sections (in order)
 
 1. **Overview** — Project summary, audience, approach
 2. **Architecture** — Analogy, layer diagram, Mermaid graph
-3. **Tech Stack** — Card grid of technologies with role + why
-4. **Entry Points** — How the app starts, flow narrative
-5. **Modules** — Module cards with simple/detailed toggle
-6. **Workflows** — Step-by-step traces with Mermaid sequence diagrams
-7. **Directory Guide** — Folder purposes and when-to-look-here
-8. **Glossary & Getting Started** — Term definitions + setup commands + day-1/week-1 learning path
-9. **Developer Cookbook** — Task-based recipes: "How do I add a route?", "How do I call an API?", etc.
+3. **Cross-Cutting Concerns** — Auth/authz, error handling, logging/observability, testing strategy
+4. **Tech Stack** — Card grid of technologies with role + why
+5. **Entry Points** — How the app starts, flow narrative
+6. **Modules** — Module cards with simple/detailed toggle
+7. **Workflows** — Step-by-step traces with Mermaid sequence diagrams
+8. **Directory Guide** — Folder purposes and when-to-look-here
+9. **Glossary & Getting Started** — Term definitions + setup commands + day-1/week-1 learning path
+10. **Developer Cookbook** — Task-based recipes: "How do I add a route?", "How do I call an API?", etc.
 
 ## Simple/Detailed Toggle
 
@@ -151,6 +152,7 @@ The template uses `{{PLACEHOLDER}}` markers that generate_site.py replaces:
 | `{{NAV}}` | sidebar navigation HTML |
 | `{{OVERVIEW}}` | overview section HTML |
 | `{{ARCHITECTURE}}` | architecture section HTML |
+| `{{CROSS_CUTTING}}` | cross-cutting concerns section HTML |
 | `{{TECH_STACK}}` | tech stack section HTML |
 | `{{ENTRY_POINTS}}` | entry points section HTML |
 | `{{MODULES}}` | all module cards HTML |

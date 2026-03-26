@@ -14,21 +14,22 @@ from pathlib import Path
 # ============================================================
 
 LANGUAGE_COLORS = {
-    'TypeScript':   ('--accent:#3b82f6;--accent-dim:#2563eb;--accent-glow:rgba(59,130,246,0.15);'),
-    'JavaScript':   ('--accent:#eab308;--accent-dim:#ca8a04;--accent-glow:rgba(234,179,8,0.15);'),
-    'Python':       ('--accent:#22c55e;--accent-dim:#16a34a;--accent-glow:rgba(34,197,94,0.15);'),
-    'Rust':         ('--accent:#f97316;--accent-dim:#ea580c;--accent-glow:rgba(249,115,22,0.15);'),
-    'Go':           ('--accent:#06b6d4;--accent-dim:#0891b2;--accent-glow:rgba(6,182,212,0.15);'),
-    'Java':         ('--accent:#ef4444;--accent-dim:#dc2626;--accent-glow:rgba(239,68,68,0.15);'),
-    'Kotlin':       ('--accent:#a855f7;--accent-dim:#9333ea;--accent-glow:rgba(168,85,247,0.15);'),
-    'C#':           ('--accent:#a855f7;--accent-dim:#9333ea;--accent-glow:rgba(168,85,247,0.15);'),
-    'Ruby':         ('--accent:#f43f5e;--accent-dim:#e11d48;--accent-glow:rgba(244,63,94,0.15);'),
-    'PHP':          ('--accent:#6366f1;--accent-dim:#4f46e5;--accent-glow:rgba(99,102,241,0.15);'),
+    'TypeScript':   'oklch(58% 0.20 250)',   # blue
+    'JavaScript':   'oklch(75% 0.18 90)',    # yellow
+    'Python':       'oklch(65% 0.18 145)',   # green
+    'Rust':         'oklch(65% 0.20 35)',    # orange
+    'Go':           'oklch(65% 0.18 200)',   # cyan
+    'Java':         'oklch(58% 0.22 25)',    # red
+    'Kotlin':       'oklch(60% 0.20 290)',   # purple
+    'C#':           'oklch(60% 0.20 290)',   # purple
+    'Ruby':         'oklch(58% 0.22 10)',    # rose
+    'PHP':          'oklch(60% 0.18 270)',   # indigo
 }
 
 # Typography pairings keyed by project name hash mod 4
+# Index 0 = Geist (primary, purpose-built for dev tools)
 FONT_PAIRINGS = [
-    ('Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900', 'DM+Sans:wght@300..700', 'Fraunces', 'DM Sans'),
+    ('Geist:wght@300..700&family=Geist+Mono:wght@300..600', 'Geist', 'Geist', 'Geist'),
     ('Playfair+Display:wght@400;600;700', 'Outfit:wght@300;400;500;600', 'Playfair Display', 'Outfit'),
     ('Syne:wght@400;600;700;800', 'Inter:wght@300;400;500', 'Syne', 'Inter'),
     ('Cormorant:ital,wght@0,400;0,600;0,700;1,400', 'Plus+Jakarta+Sans:wght@300;400;500;600', 'Cormorant', 'Plus Jakarta Sans'),
@@ -96,8 +97,8 @@ def get_font_pairing(project_name):
 
 
 def get_color_vars(language):
-    css = LANGUAGE_COLORS.get(language, '--accent:#64748b;--accent-dim:#475569;--accent-glow:rgba(100,116,139,0.15);')
-    return ':root{' + css + '}'
+    val = LANGUAGE_COLORS.get(language, 'oklch(55% 0.08 264)')
+    return f':root{{--accent:{val};--accent-dim:oklch(from {val} calc(l - 0.06) c h);--accent-subtle:oklch(from {val} calc(l + 0.38) calc(c * 0.2) h);}}'
 
 
 def assemble(templates, sections_html, nav_html, search_index_js, analysis, project_name):
@@ -108,26 +109,27 @@ def assemble(templates, sections_html, nav_html, search_index_js, analysis, proj
 
     out = templates['html']
     replacements = {
-        '{{PROJECT_NAME}}':   html.escape(project_name),
-        '{{CSS}}':            templates['css'],
-        '{{JS}}':             templates['js'],
-        '{{COLOR_VARS}}':     color_vars,
-        '{{NAV}}':            nav_html,
-        '{{OVERVIEW}}':       sections_html.get('overview', ''),
-        '{{ARCHITECTURE}}':   sections_html.get('architecture', ''),
-        '{{MINDMAP}}':        sections_html.get('mindmap', ''),
-        '{{TECH_STACK}}':     sections_html.get('tech_stack', ''),
-        '{{ENTRY_POINTS}}':   sections_html.get('entry_points', ''),
-        '{{MODULES}}':        sections_html.get('modules', ''),
-        '{{WORKFLOWS}}':      sections_html.get('workflows', ''),
-        '{{DIRECTORY_GUIDE}}':sections_html.get('directory_guide', ''),
-        '{{GLOSSARY}}':       sections_html.get('glossary', ''),
-        '{{GETTING_STARTED}}':sections_html.get('getting_started', ''),
-        '{{COOKBOOK}}':       sections_html.get('cookbook', ''),
-        '{{SEARCH_INDEX}}':   search_index_js,
-        '{{FONT_URL}}':       font_url,
-        '{{FONT_HEADING}}':   font_heading,
-        '{{FONT_BODY}}':      font_body,
+        '{{PROJECT_NAME}}':    html.escape(project_name),
+        '{{CSS}}':             templates['css'],
+        '{{JS}}':              templates['js'],
+        '{{COLOR_VARS}}':      color_vars,
+        '{{NAV}}':             nav_html,
+        '{{OVERVIEW}}':        sections_html.get('overview', ''),
+        '{{ARCHITECTURE}}':    sections_html.get('architecture', ''),
+        '{{MINDMAP}}':         sections_html.get('mindmap', ''),
+        '{{CROSS_CUTTING}}':   sections_html.get('cross_cutting', ''),
+        '{{TECH_STACK}}':      sections_html.get('tech_stack', ''),
+        '{{ENTRY_POINTS}}':    sections_html.get('entry_points', ''),
+        '{{MODULES}}':         sections_html.get('modules', ''),
+        '{{WORKFLOWS}}':       sections_html.get('workflows', ''),
+        '{{DIRECTORY_GUIDE}}': sections_html.get('directory_guide', ''),
+        '{{GLOSSARY}}':        sections_html.get('glossary', ''),
+        '{{GETTING_STARTED}}': sections_html.get('getting_started', ''),
+        '{{COOKBOOK}}':        sections_html.get('cookbook', ''),
+        '{{SEARCH_INDEX}}':    search_index_js,
+        '{{FONT_URL}}':        font_url,
+        '{{FONT_HEADING}}':    font_heading,
+        '{{FONT_BODY}}':       font_body,
     }
     for key, val in replacements.items():
         out = out.replace(key, val)
@@ -489,8 +491,8 @@ def gen_mindmap(analysis):
     .tm-label{{color:var(--text-primary);font-weight:500}}
     .tm-children{{list-style:none;margin:0;padding:0 0 0 1.5rem;border-left:1px solid var(--border,rgba(0,0,0,0.1))}}
     .tm-leaf{{display:block;font-size:0.8125rem;color:var(--text-secondary);padding:0.15rem 0.4rem;text-decoration:none;border-radius:3px}}
-    .tm-leaf:hover{{color:var(--accent,#3b82f6);background:var(--bg-tertiary,rgba(0,0,0,0.05))}}
-    a.tm-leaf{{color:var(--accent,#3b82f6);cursor:pointer}}
+    .tm-leaf:hover{{color:var(--accent,oklch(54% 0.22 262));background:var(--bg-surface,rgba(0,0,0,0.03))}}
+    a.tm-leaf{{color:var(--accent,oklch(54% 0.22 262));cursor:pointer}}
   </style>
   <ul class="tm-branch" id="codebase-tree" style="padding:0">{tree_html}</ul>
   <script>
@@ -536,6 +538,57 @@ def gen_cookbook(data):
   <h2 class="section-title">How do I...?</h2>
   <p style="color:var(--text-secondary);margin-bottom:1.5rem">{subtitle}</p>
   <div class="cookbook-grid">{recipe_cards}</div>
+</section>'''
+
+
+def gen_cross_cutting(data):
+    if not data:
+        return ''
+
+    def _topic_block(label, topic_data):
+        if not topic_data:
+            return ''
+        simple = e(topic_data.get('simple_explanation') or topic_data.get('strategy') or
+                   topic_data.get('library') or topic_data.get('unit_framework') or
+                   topic_data.get('mechanism') or topic_data.get('pattern') or '')
+        detailed = e(topic_data.get('detailed_explanation') or '')
+        mermaid_html = ''
+        if topic_data.get('mermaid'):
+            mermaid_html = f'<div class="mermaid-wrap"><div class="mermaid" data-diagram="{e(topic_data["mermaid"])}"></div></div>'
+        files_html = ''
+        for fkey in ('guard_files', 'key_files'):
+            files = topic_data.get(fkey) or []
+            if files:
+                chips = ''.join(f'<span class="relation-chip">{e(f)}</span>' for f in files[:6])
+                files_html = f'<div class="module-relations"><span class="relation-label">files →</span>{chips}</div>'
+                break
+        return f'''<div class="module-card" style="margin-bottom:0.75rem">
+    <div class="module-name">{e(label)}</div>
+    <p style="font-size:0.875rem;color:var(--text-secondary);margin:0.3rem 0 0.5rem">{simple}</p>
+    {f'<p style="font-size:0.82rem;color:var(--text-secondary)">{detailed}</p>' if detailed else ""}
+    {mermaid_html}
+    {files_html}
+  </div>'''
+
+    blocks = ''
+    if data.get('auth_authz'):
+        aa = data['auth_authz']
+        mechanism = e(aa.get('mechanism', ''))
+        blocks += _topic_block(f'Auth / AuthZ ({mechanism})' if mechanism else 'Auth / AuthZ', aa)
+    if data.get('error_handling'):
+        blocks += _topic_block('Error Handling', data['error_handling'])
+    if data.get('logging_observability'):
+        blocks += _topic_block('Logging & Observability', data['logging_observability'])
+    if data.get('testing_strategy'):
+        blocks += _topic_block('Testing Strategy', data['testing_strategy'])
+
+    if not blocks:
+        return ''
+
+    return f'''<section class="section" id="cross-cutting">
+  <p class="section-label">Cross-Cutting Concerns</p>
+  <h2 class="section-title">How does it handle auth, errors, logging, and testing?</h2>
+  <div class="modules-grid" style="margin-top:1rem">{blocks}</div>
 </section>'''
 
 
@@ -602,6 +655,24 @@ def build_search_index(content):
         for item in (gsg.get('glossary') or []):
             add('Glossary — ' + item.get('term', ''), item.get('definition', ''), 'glossary')
 
+    # Cross-cutting concerns
+    cc = content.get('cross_cutting', {})
+    if isinstance(cc, dict):
+        for key, label in [('auth_authz', 'Auth/AuthZ'), ('error_handling', 'Error Handling'),
+                           ('logging_observability', 'Logging & Observability'),
+                           ('testing_strategy', 'Testing Strategy')]:
+            topic = cc.get(key) or {}
+            if isinstance(topic, dict):
+                text = ' '.join(filter(None, [
+                    topic.get('simple_explanation', ''),
+                    topic.get('detailed_explanation', ''),
+                    topic.get('strategy', ''),
+                    topic.get('pattern', ''),
+                    topic.get('library', ''),
+                ]))
+                if text:
+                    add('Cross-Cutting — ' + label, text, 'cross-cutting')
+
     # Cookbook
     cb = content.get('cookbook', {})
     if isinstance(cb, dict):
@@ -618,6 +689,7 @@ def build_navigation(content, has_mindmap=False):
         ('overview',       'overview',       'Overview'),
         ('architecture',   'architecture',   'Architecture'),
         ('mindmap',        'codebase-map',   'Codebase Map'),
+        ('cross_cutting',  'cross-cutting',  'Cross-Cutting Concerns'),
         ('tech_stack',     'tech-stack',     'Tech Stack'),
         ('entry_points',   'entry-points',   'Entry Points'),
         ('modules',        'modules',        'Modules'),
@@ -654,6 +726,144 @@ def build_navigation(content, has_mindmap=False):
             nav += f'<div class="nav-group-children">\n{module_links}</div>\n'
 
     return nav
+
+
+def write_extra_artifacts(output_dir, analysis, content):
+    """Write catalog-info.yaml, .claudeignore.recommended, and CLAUDE.md.snippet."""
+    out = Path(output_dir)
+    meta = analysis.get('meta') or {}
+    stack = analysis.get('stack') or {}
+    entry_points = analysis.get('entry_points') or []
+    clusters = analysis.get('clusters') or []
+    external_deps = analysis.get('external_deps_top10') or []
+    skip_candidates = analysis.get('skip_candidates') or []
+    overview = content.get('overview') or {}
+
+    project_name = meta.get('name', 'unknown')
+    language = stack.get('primary_language', 'Unknown')
+    framework = stack.get('framework', '')
+    tags = [t for t in [language.lower(), framework.lower() if framework else None] if t]
+
+    # Infer component type from entry points
+    ep_types = [ep.get('type', '') for ep in entry_points]
+    comp_type = 'service'
+    if any('web' in t or 'http' in t or 'server' in t for t in ep_types):
+        comp_type = 'service'
+    elif any('lib' in t for t in ep_types):
+        comp_type = 'library'
+
+    # catalog-info.yaml (Backstage-compatible)
+    summary_first_sentence = ''
+    if overview.get('summary'):
+        parts = str(overview['summary']).split('.')
+        summary_first_sentence = parts[0].strip() + '.' if parts else str(overview['summary'])[:120]
+
+    deps_list = '\n'.join(f'  - {e(d.get("name", ""))}' for d in external_deps[:8] if d.get('name'))
+    tags_list = '\n'.join(f'  - {t}' for t in tags[:6])
+
+    # Try to infer owner from CODEOWNERS
+    owner = 'unknown'
+    codeowners_candidates = [
+        Path(analysis.get('_repo_path', '')) / 'CODEOWNERS',
+        Path(analysis.get('_repo_path', '')) / '.github' / 'CODEOWNERS',
+    ]
+    for cp in codeowners_candidates:
+        try:
+            first_line = cp.read_text(encoding='utf-8', errors='ignore').strip().splitlines()
+            if first_line:
+                parts = first_line[0].split()
+                if len(parts) >= 2:
+                    owner = parts[1].lstrip('@')
+                    break
+        except Exception:
+            pass
+
+    catalog_yaml = f"""apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: {project_name}
+  description: {summary_first_sentence or f'{project_name} service'}
+  tags:
+{tags_list if tags_list else '  - unknown'}
+spec:
+  type: {comp_type}
+  lifecycle: production
+  owner: {owner}
+  dependsOn:
+{deps_list if deps_list else '  []'}
+"""
+    try:
+        (out / 'catalog-info.yaml').write_text(catalog_yaml, encoding='utf-8')
+    except Exception as e_:
+        print(f'Warning: could not write catalog-info.yaml: {e_}', file=sys.stderr)
+
+    # .claudeignore.recommended
+    ignore_lines = ['# Auto-generated by RepoTour — review before use', '']
+    # Lock files / package manager artifacts
+    ignore_lines += ['# Lock files and package manager artifacts', 'package-lock.json', 'yarn.lock',
+                     'pnpm-lock.yaml', 'bun.lockb', 'Gemfile.lock', 'Cargo.lock',
+                     'poetry.lock', 'Pipfile.lock', '']
+    # Build output dirs
+    ignore_lines += ['# Build outputs', 'dist/', 'build/', 'target/', '.next/', 'out/', '.nuxt/',
+                     '__pycache__/', '*.pyc', '*.pyo', '']
+    # Generated code
+    ignore_lines += ['# Generated files', '__generated__/', '*.generated.ts', '*.pb.ts', '*.pb.go',
+                     '*_pb2.py', '']
+    # Large / noisy files from skip_candidates
+    if skip_candidates:
+        ignore_lines += ['# Large or minified files detected in this repo']
+        for f in skip_candidates[:10]:
+            ignore_lines.append(str(f))
+        ignore_lines.append('')
+
+    try:
+        (out / '.claudeignore.recommended').write_text('\n'.join(ignore_lines), encoding='utf-8')
+    except Exception as e_:
+        print(f'Warning: could not write .claudeignore.recommended: {e_}', file=sys.stderr)
+
+    # CLAUDE.md.snippet
+    ep_lines = '\n'.join(f'- {ep.get("file", "")} ({ep.get("trigger", "")})' for ep in entry_points[:3])
+    cluster_lines = '\n'.join(f'- {cl.get("name", "")}: {", ".join(cl.get("files", [])[:3])}' for cl in clusters[:6])
+    test_fw = stack.get('test_framework', 'unknown')
+    db = stack.get('database', '')
+    ci = stack.get('ci', '')
+
+    snippet_lines = [
+        f'# {project_name} — CLAUDE.md snippet (auto-generated by RepoTour)',
+        '',
+        '## Tech Stack',
+        f'- Language: {language}',
+    ]
+    if framework:
+        snippet_lines.append(f'- Framework: {framework}')
+    if db:
+        snippet_lines.append(f'- Database: {db}')
+    if test_fw and test_fw != 'unknown':
+        snippet_lines.append(f'- Tests: {test_fw}')
+    if ci:
+        snippet_lines.append(f'- CI: {ci}')
+
+    snippet_lines += ['', '## Entry Points']
+    snippet_lines.append(ep_lines or '- (none detected)')
+
+    snippet_lines += ['', '## Module Boundaries']
+    snippet_lines.append(cluster_lines or '- (no clusters detected)')
+
+    snippet_lines += [
+        '',
+        '## Architecture (3 sentences)',
+        f'This is a {language} {framework or "application"}. ' +
+        (f'It has {meta.get("total_files", 0)} total files across {len(clusters)} logical clusters. ' if clusters else '') +
+        'See full tour for detailed architecture, workflows, and developer cookbook.',
+        '',
+        '## Compaction instructions',
+        'When context gets long: summarize completed tasks, keep active file paths, preserve error messages.',
+    ]
+
+    try:
+        (out / 'CLAUDE.md.snippet').write_text('\n'.join(snippet_lines), encoding='utf-8')
+    except Exception as e_:
+        print(f'Warning: could not write CLAUDE.md.snippet: {e_}', file=sys.stderr)
 
 
 def write_readme(output_dir, project_name):
@@ -697,6 +907,7 @@ def main():
         'overview':       gen_overview(content.get('overview')),
         'architecture':   gen_architecture(content.get('architecture')),
         'mindmap':        mindmap_html,
+        'cross_cutting':  gen_cross_cutting(content.get('cross_cutting')),
         'tech_stack':     gen_tech_stack(content.get('tech_stack')),
         'entry_points':   gen_entry_points(content.get('entry_points')),
         'modules':        gen_modules(content.get('modules')),
@@ -720,6 +931,7 @@ def main():
     out_file = out_dir / 'index.html'
     out_file.write_text(output_html, encoding='utf-8')
     write_readme(str(out_dir), project_name)
+    write_extra_artifacts(str(out_dir), analysis, content)
 
     # Stats
     stats = {

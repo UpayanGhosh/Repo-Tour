@@ -50,7 +50,7 @@ Loop through sections. For each section:
 4. Generate content JSON — max 4000 tokens output
 5. Write to `site-content/<section>.json`
 
-Sections (in order): overview, architecture, tech_stack, entry_points, modules (batched), workflows, directory_guide, glossary_getting_started, cookbook
+Sections (in order): overview, architecture, cross_cutting, tech_stack, entry_points, modules (batched), workflows, directory_guide, glossary_getting_started, cookbook
 
 **Sonnet NEVER reads raw source files during Phase 2 — only Haiku briefings.**
 See `references/SECTION_PROMPTS.md` for per-section schemas and token budgets.
@@ -91,7 +91,7 @@ Provide deploy commands:
 
 Before delivering output:
 - [ ] repo-analysis.json under 3500 tokens
-- [ ] All 9 site-content/*.json files exist and are valid JSON (including cookbook.json)
+- [ ] All 10 site-content/*.json files exist and are valid JSON (including cross_cutting.json and cookbook.json)
 - [ ] index.html opens without errors
 - [ ] Every module has a specific behavior description (not generic)
 - [ ] All mermaid diagrams use valid syntax

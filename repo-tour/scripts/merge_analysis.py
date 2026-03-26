@@ -33,9 +33,14 @@ def load_json(path: str, label: str) -> dict:
 
 
 def merge(scan: dict, stack: dict, entries: dict, deps: dict, budget: int = 3500) -> dict:
+    # Extract stack dict (may contain monorepo + additional_patterns)
+    stack_data = stack.get('stack', {})
+
     merged = {
         'meta': scan.get('meta', {}),
-        'stack': stack.get('stack', {}),
+        'stack': stack_data,
+        'monorepo': stack_data.get('monorepo', {'type': 'none', 'packages': [], 'boundary_rules': [], 'tag_system': ''}),
+        'additional_patterns': stack_data.get('additional_patterns', []),
         'entry_points': entries.get('entry_points', []),
         'critical_modules': deps.get('critical_modules', []),
         'clusters': deps.get('clusters', []),
@@ -49,6 +54,8 @@ def merge(scan: dict, stack: dict, entries: dict, deps: dict, budget: int = 3500
         'workflows': [],            # Filled by Sonnet in Phase 1
         'glossary_candidates': [], # Filled by Sonnet after reading modules
         'circular_warnings': deps.get('circular_warnings', []),
+        'feature_index_summary': deps.get('feature_index_summary', {}),
+        'generated_surfaces_count': scan.get('generated_surfaces_count', 0),
         '_meta': {
             'token_estimate': 0,
             'within_budget': True,
