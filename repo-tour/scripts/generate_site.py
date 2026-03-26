@@ -390,105 +390,101 @@ def gen_getting_started(data):
 
 
 def gen_mindmap(analysis):
-    """Build a D3.js radial mind map from repo-analysis.json. Zero LLM — pure Python."""
+    """Build a D3.js radial mind map showing the REAL directory structure.
+
+    The mind map radiates from the project root outward:
+      root → top-level dirs → subdirs → files
+    Colored by file extension. Collapses at depth > 1 by default.
+    Zero LLM — pure Python tree construction from known file paths.
+    """
     if not analysis:
         return ''
     meta = analysis.get('meta') or {}
     project_name = meta.get('name', 'Project')
     entry_points = analysis.get('entry_points') or []
-    clusters = analysis.get('clusters') or []
     critical_modules = analysis.get('critical_modules') or []
-    external_deps = analysis.get('external_deps_top10') or []
     top_dirs = analysis.get('top_dirs') or []
-    stack = analysis.get('stack') or {}
 
-    module_paths = {m.get('path', '') for m in critical_modules}
+    def norm(p):
+        return p.replace('\\', '/').strip('/')
 
-    def slug(path):
-        return path.replace('/', '-').replace('.', '-').replace('\\', '-').lower()
+    # ── Collect every known file path ────────────────────────────────────────
+    all_paths = []
+    seen = set()
+    for ep in entry_points:
+        p = norm(ep.get('file', ''))
+        if p and p not in seen:
+            all_paths.append(p); seen.add(p)
+    for m in critical_modules:
+        p = norm(m.get('path', ''))
+        if p and p not in seen:
+            all_paths.append(p); seen.add(p)
 
-    # Build JSON tree for D3
-    children = []
+    # ── Build real directory tree from path strings ──────────────────────────
+    # tree_node = {'name': str, 'type': 'root'|'dir'|'file', 'ext': str, '_ch': {}}
+    root_node = {'name': project_name, 'type': 'root', '_ch': {}}
 
-    # 1. Entry Points
-    if entry_points:
-        ep_kids = [
-            {'name': ep.get('file', '').replace('\\', '/').split('/')[-1] or ep.get('file', ''),
-             'type': 'leaf', 'href': '#entry-points'}
-            for ep in entry_points[:10] if ep.get('file')
-        ]
-        if ep_kids:
-            children.append({'name': 'Entry Points', 'type': 'category',
-                             'count': len(ep_kids), 'children': ep_kids})
+    # Seed directories from top_dirs so even dirs with no critical files appear
+    for d in top_dirs[:25]:
+        parts = [p for p in norm(d).split('/') if p]
+        node = root_node
+        for part in parts[:3]:          # max 3 levels from top_dirs
+            if part not in node['_ch']:
+                node['_ch'][part] = {'name': part, 'type': 'dir', '_ch': {}}
+            node = node['_ch'][part]
 
-    # 2. Module clusters
-    for cluster in clusters[:12]:
-        cname = cluster.get('name', 'Modules')
-        files = cluster.get('files') or []
-        c_kids = []
-        for f in files[:15]:
-            fname = f.replace('\\', '/').split('/')[-1] or f
-            href = '#module-' + slug(f) if f in module_paths else '#modules'
-            c_kids.append({'name': fname, 'type': 'module', 'href': href})
-        if c_kids:
-            children.append({'name': cname, 'type': 'cluster',
-                             'count': len(files), 'children': c_kids})
+    # Insert actual files (max depth 5 to keep tree manageable)
+    for path in all_paths:
+        parts = [p for p in path.split('/') if p]
+        if not parts:
+            continue
+        parts = parts[:5]
+        node = root_node
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:     # leaf = file
+                ext = part.rsplit('.', 1)[-1].lower() if '.' in part else ''
+                node['_ch'][part] = {'name': part, 'type': 'file', 'ext': ext, '_ch': {}}
+            else:                        # intermediate = directory
+                if part not in node['_ch']:
+                    node['_ch'][part] = {'name': part, 'type': 'dir', '_ch': {}}
+                node = node['_ch'][part]
 
-    # Fallback: no clusters
-    if not clusters and critical_modules:
-        mod_kids = [
-            {'name': m.get('path', '').replace('\\', '/').split('/')[-1] or m.get('path', ''),
-             'type': 'module', 'href': '#module-' + slug(m.get('path', ''))}
-            for m in critical_modules[:20]
-        ]
-        if mod_kids:
-            children.append({'name': 'Modules', 'type': 'category',
-                             'count': len(mod_kids), 'children': mod_kids})
+    # ── Convert to D3-compatible hierarchy dict ───────────────────────────────
+    def to_d3(node, depth=0, max_depth=5):
+        result = {'name': node['name'], 'type': node['type']}
+        if node.get('ext'):
+            result['ext'] = node['ext']
+        kids = list(node['_ch'].values())
+        # Sort: dirs first, then files alphabetically
+        kids.sort(key=lambda k: (0 if k['type'] == 'dir' else 1, k['name'].lower()))
+        if kids and depth < max_depth:
+            result['children'] = [to_d3(k, depth + 1, max_depth) for k in kids]
+        elif kids:
+            result['_count'] = len(kids)
+        return result
 
-    # 3. Tech Stack
-    stack_kids = []
-    for k in ('framework', 'primary_language', 'runtime', 'database',
-               'test_framework', 'package_manager', 'build_tool'):
-        v = stack.get(k)
-        if v:
-            stack_kids.append({'name': v, 'type': 'leaf', 'href': '#tech-stack'})
-    for dep in external_deps[:6]:
-        n = dep.get('name', '')
-        if n:
-            stack_kids.append({'name': n, 'type': 'leaf', 'href': '#tech-stack'})
-    if stack_kids:
-        children.append({'name': 'Tech Stack', 'type': 'category',
-                         'count': len(stack_kids), 'children': stack_kids})
-
-    # 4. Directories
-    if top_dirs:
-        dir_kids = [
-            {'name': d, 'type': 'leaf', 'href': '#directory-guide'}
-            for d in top_dirs[:15]
-        ]
-        children.append({'name': 'Directories', 'type': 'category',
-                         'count': len(top_dirs), 'children': dir_kids})
-
-    if not children:
+    tree = to_d3(root_node)
+    if not tree.get('children'):
         return ''
 
-    tree_data = {'name': project_name, 'type': 'root', 'children': children}
-    tree_json = json.dumps(tree_data)
+    tree_json = json.dumps(tree)
+    source = meta.get('source_files', 0)
     total = meta.get('total_files', 0)
-    stats_str = f'{total:,} files · ' if total else ''
-    fallback_items = ''.join(
-        f'<li>{e(c["name"])} ({c.get("count", len(c.get("children", [])))} items)</li>'
-        for c in children
-    )
+    stats = (f'{source:,} source files' if source else
+             f'{total:,} files' if total else '')
+    stats_suffix = ' · ' if stats else ''
+
+    top_names = [c['name'] for c in (tree.get('children') or [])]
+    fallback_items = ''.join(f'<li>{e(n)}/</li>' for n in top_names[:12])
 
     return f'''<section class="section" id="codebase-map">
   <p class="section-label">Codebase Map</p>
-  <h2 class="section-title">Codebase at a glance</h2>
-  <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem">{e(stats_str)}click nodes to expand · scroll to zoom · drag to pan</p>
-  <div id="mm-wrap" style="position:relative;width:100%;height:580px;border-radius:12px;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border)">
+  <h2 class="section-title">Directory structure</h2>
+  <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem">{e(stats + stats_suffix)}click folders to expand · scroll to zoom · drag to pan</p>
+  <div id="mm-wrap" style="position:relative;width:100%;height:600px;border-radius:12px;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border)">
     <svg id="mm-svg" style="width:100%;height:100%"></svg>
     <div id="mm-fallback" style="display:none;padding:1.5rem">
-      <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.75rem">Structure overview:</p>
+      <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.5rem">Top-level directories:</p>
       <ul style="font-size:0.875rem;color:var(--text-secondary)">{fallback_items}</ul>
     </div>
     <div style="position:absolute;bottom:0.75rem;right:0.75rem;display:flex;gap:0.4rem">
@@ -500,35 +496,81 @@ def gen_mindmap(analysis):
   <script>
 (function(){{
 var TREE={tree_json};
-var W=900,H=900,R=310;
-var BC=['oklch(58% 0.20 262)','oklch(62% 0.19 145)','oklch(64% 0.19 30)','oklch(60% 0.18 320)','oklch(55% 0.17 200)','oklch(63% 0.16 60)','oklch(60% 0.20 290)','oklch(62% 0.19 170)','oklch(64% 0.18 10)','oklch(61% 0.17 240)','oklch(63% 0.16 100)','oklch(62% 0.20 350)'];
-function trav(d,fn){{fn(d);var ch=d.children||d._ch||[];ch.forEach(function(c){{trav(c,fn);}});}}
+var W=960,H=960;
+// File extension → color (OKLCH)
+var EC={{
+  ts:'oklch(58% 0.20 250)',tsx:'oklch(58% 0.20 250)',
+  js:'oklch(72% 0.18 90)',jsx:'oklch(72% 0.18 90)',mjs:'oklch(72% 0.18 90)',cjs:'oklch(72% 0.18 90)',
+  py:'oklch(65% 0.18 145)',
+  cs:'oklch(60% 0.20 290)',
+  java:'oklch(60% 0.20 25)',kt:'oklch(60% 0.18 300)',
+  go:'oklch(65% 0.18 200)',
+  rs:'oklch(65% 0.20 35)',
+  rb:'oklch(60% 0.20 10)',php:'oklch(60% 0.18 270)',
+  html:'oklch(62% 0.16 25)',css:'oklch(58% 0.18 260)',scss:'oklch(60% 0.16 320)',sass:'oklch(60% 0.16 320)',
+  json:'oklch(58% 0.10 200)',yaml:'oklch(60% 0.12 60)',yml:'oklch(60% 0.12 60)',toml:'oklch(60% 0.12 50)',
+  md:'oklch(56% 0.09 145)',mdx:'oklch(56% 0.09 145)',
+  vue:'oklch(62% 0.18 155)',svelte:'oklch(62% 0.20 20)',
+  dart:'oklch(60% 0.18 210)',swift:'oklch(62% 0.20 30)',
+  sql:'oklch(60% 0.15 230)',
+  sh:'oklch(58% 0.14 140)',bash:'oklch(58% 0.14 140)',
+  _dir:'oklch(52% 0.08 240)',
+  _root:'oklch(54% 0.22 262)'
+}};
+function nodeColor(d){{
+  if(!d||!d.data)return EC._dir;
+  if(d.data.type==='root')return EC._root;
+  if(d.data.type==='dir')return EC._dir;
+  return EC[d.data.ext||'']||'oklch(52% 0.07 240)';
+}}
+function trav(d,fn){{fn(d);(d.children||d._ch||[]).forEach(function(c){{trav(c,fn);}});}}
 function init(){{
-  if(typeof d3==='undefined'){{document.getElementById('mm-fallback').style.display='block';document.getElementById('mm-svg').style.display='none';return;}}
+  if(typeof d3==='undefined'){{
+    document.getElementById('mm-fallback').style.display='block';
+    document.getElementById('mm-svg').style.display='none';
+    return;
+  }}
+  var R=Math.min(W,H)/2-115;
   var svg=d3.select('#mm-svg').attr('viewBox',[-W/2,-H/2,W,H]);
-  var zb=d3.zoom().scaleExtent([0.2,4]).on('zoom',function(ev){{g.attr('transform',ev.transform);}});
+  var zb=d3.zoom().scaleExtent([0.12,5]).on('zoom',function(ev){{g.attr('transform',ev.transform);}});
   svg.call(zb);
   var g=svg.append('g');
-  var gL=g.append('g').attr('fill','none').attr('stroke-opacity',0.45).attr('stroke-width',1.5);
+  var gL=g.append('g').attr('fill','none').attr('stroke-width',1.1);
   var gN=g.append('g').attr('cursor','pointer');
-  var tl=d3.tree().size([2*Math.PI,R]).separation(function(a,b){{return(a.parent===b.parent?1:2)/a.depth;}});
+  var tl=d3.tree()
+    .size([2*Math.PI,R])
+    .separation(function(a,b){{return(a.parent===b.parent?1:2)/a.depth;}});
   var root=d3.hierarchy(TREE);
   var uid=0;
-  root.each(function(d){{d.id=uid++;d._ch=d.children?d.children.slice():null;if(d.depth>0)d.children=null;}});
-  if(root._ch){{root.children=root._ch;root._ch=null;}}
-  trav(root,function(d){{if(d.depth===1){{var sib=root.children||root._ch||[];d._bi=sib.indexOf(d);}}else if(d.depth>1){{d._bi=d.parent._bi;}}}});
-  function col(d){{return d.depth===0?'oklch(54% 0.22 262)':BC[((d._bi||0)%BC.length+BC.length)%BC.length];}}
+  // Store children, collapse depth > 1 (top-level dirs visible, contents hidden)
+  root.each(function(d){{
+    d.id=uid++;
+    d._ch=d.children?d.children.slice():null;
+    if(d.depth>1)d.children=null;
+  }});
+  root.x0=0; root.y0=0;
   function pt(x,y){{var a=x-Math.PI/2;return[y*Math.cos(a),y*Math.sin(a)];}}
-  root.x0=0;root.y0=0;
   function upd(src){{
     tl(root);
-    var dur=450,nodes=root.descendants().reverse(),links=root.links();
+    var dur=380;
+    var nodes=root.descendants().reverse();
+    var links=root.links();
+    // ── Links ─────────────────────────────────────────────────────────
     var lk=gL.selectAll('path.mml').data(links,function(d){{return d.target.id;}});
-    var le=lk.enter().append('path').attr('class','mml').attr('d',function(){{var p=pt(src.x0||0,src.y0||0);return'M'+p+'L'+p;}});
+    var le=lk.enter().append('path').attr('class','mml')
+      .attr('d',function(){{var p=pt(src.x0||0,src.y0||0);return'M'+p+'L'+p;}});
     lk.merge(le).transition().duration(dur).ease(d3.easeCubicInOut)
-      .attr('stroke',function(d){{return col(d.target);}})
-      .attr('d',function(d){{return d3.linkRadial().angle(function(n){{return n.x;}}).radius(function(n){{return n.y;}})(d);}});
-    lk.exit().transition().duration(dur).attr('d',function(){{var p=pt(src.x||0,src.y||0);return'M'+p+'L'+p;}}).remove();
+      .attr('stroke',function(d){{return nodeColor(d.target);}})
+      .attr('stroke-opacity',function(d){{return d.target.data.type==='file'?0.30:0.50;}})
+      .attr('d',function(d){{
+        return d3.linkRadial()
+          .angle(function(n){{return n.x;}})
+          .radius(function(n){{return n.y;}})(d);
+      }});
+    lk.exit().transition().duration(dur)
+      .attr('d',function(){{var p=pt(src.x||0,src.y||0);return'M'+p+'L'+p;}})
+      .remove();
+    // ── Nodes ─────────────────────────────────────────────────────────
     var nd=gN.selectAll('g.mmn').data(nodes,function(d){{return d.id;}});
     var ne=nd.enter().append('g').attr('class','mmn')
       .attr('transform',function(){{var p=pt(src.x0||0,src.y0||0);return'translate('+p+')';}} )
@@ -536,44 +578,91 @@ function init(){{
       .on('click',function(ev,d){{
         ev.stopPropagation();
         if(d._ch){{d.children=d.children?null:d._ch;upd(d);}}
-        else if(d.data.href){{var el=document.querySelector(d.data.href);if(el)el.scrollIntoView({{behavior:'smooth',block:'start'}});}}
       }});
+    ne.append('title');    // tooltip showing full name
     ne.append('circle');
     ne.append('text').attr('class','mmt');
     var nm=nd.merge(ne);
+    // Update tooltip
+    nm.select('title').text(function(d){{return d.data.name;}});
     nm.transition().duration(dur).ease(d3.easeCubicInOut)
       .attr('transform',function(d){{var p=pt(d.x,d.y);return'translate('+p+')';}} )
       .attr('opacity',1);
     nm.select('circle').transition().duration(dur)
-      .attr('r',function(d){{return d.depth===0?12:d._ch?6:3.5;}})
-      .attr('fill',function(d){{return(d.children||d.depth===0)?col(d):d._ch?col(d):'var(--bg-surface)';}})
-      .attr('stroke',function(d){{return col(d);}}).attr('stroke-width',2);
+      .attr('r',function(d){{
+        if(d.depth===0)return 13;
+        if(d.data.type==='dir')return d._ch?6.5:5;
+        return 3;
+      }})
+      .attr('fill',function(d){{
+        if(d.depth===0||d.children)return nodeColor(d);
+        if(d._ch)return nodeColor(d);          // collapsed dir or file
+        return d.data.type==='file'?'transparent':nodeColor(d);
+      }})
+      .attr('stroke',nodeColor)
+      .attr('stroke-width',function(d){{return d.depth===0?0:1.5;}})
+      .attr('fill-opacity',function(d){{return d.data.type==='file'&&!d._ch?0.6:1;}});
     nm.select('text.mmt')
-      .attr('dy','0.31em')
-      .attr('x',function(d){{if(d.depth===0)return 0;return(d.x<Math.PI)?11:-11;}})
-      .attr('text-anchor',function(d){{if(d.depth===0)return'middle';return(d.x<Math.PI)?'start':'end';}})
-      .attr('transform',function(d){{if(d.depth===0)return null;return(d.x>=Math.PI)?'rotate(180)':null;}})
-      .attr('font-size',function(d){{return d.depth===0?'13px':d.depth===1?'11px':'9.5px';}})
-      .attr('font-weight',function(d){{return d.depth<=1?'600':'400';}})
-      .attr('fill','var(--text-primary)')
-      .text(function(d){{var n=d.data.name||'';return n.length>30?n.slice(0,28)+'\u2026':n;}});
+      .attr('dy','0.32em')
+      .attr('x',function(d){{
+        if(d.depth===0)return 0;
+        var r=d.data.type==='dir'?9:7;
+        return(d.x<Math.PI)?r:-r;
+      }})
+      .attr('text-anchor',function(d){{
+        if(d.depth===0)return'middle';
+        return(d.x<Math.PI)?'start':'end';
+      }})
+      .attr('transform',function(d){{
+        if(d.depth===0)return null;
+        return(d.x>=Math.PI)?'rotate(180)':null;
+      }})
+      .attr('font-size',function(d){{
+        if(d.depth===0)return'13px';
+        if(d.data.type==='dir')return'10.5px';
+        return'9px';
+      }})
+      .attr('font-weight',function(d){{return d.data.type==='file'?'400':'600';}})
+      .attr('fill',function(d){{
+        return d.data.type==='file'?'var(--text-secondary)':'var(--text-primary)';
+      }})
+      .text(function(d){{
+        var n=d.data.name||'';
+        // Show trailing slash for dirs to make them obvious
+        var suffix=(d.data.type==='dir'&&d.depth>0)?'/':'';
+        var label=n+suffix;
+        return label.length>28?label.slice(0,26)+'\u2026':label;
+      }});
     nd.exit().transition().duration(dur)
-      .attr('transform',function(){{var p=pt(src.x||0,src.y||0);return'translate('+p+')';}} ).attr('opacity',0).remove();
+      .attr('transform',function(){{var p=pt(src.x||0,src.y||0);return'translate('+p+')';}} )
+      .attr('opacity',0).remove();
     root.each(function(d){{d.x0=d.x;d.y0=d.y;}});
   }}
   upd(root);
-  window.mmReset=function(){{svg.transition().duration(400).call(zb.transform,d3.zoomIdentity);}};
+  window.mmReset=function(){{svg.transition().duration(350).call(zb.transform,d3.zoomIdentity);}};
   window.mmExpand=function(){{trav(root,function(d){{if(d._ch)d.children=d._ch;}});upd(root);}};
-  window.mmCollapse=function(){{trav(root,function(d){{if(d.depth>0&&d._ch)d.children=null;}});if(root._ch){{root.children=root._ch;root._ch=null;}}upd(root);}};
+  window.mmCollapse=function(){{
+    trav(root,function(d){{if(d.depth>1&&d._ch)d.children=null;}});
+    upd(root);
+  }};
+  // Re-apply text color on theme toggle
   new MutationObserver(function(){{
-    gN.selectAll('text.mmt').attr('fill','var(--text-primary)');
+    gN.selectAll('text.mmt').attr('fill',function(d){{
+      return d&&d.data&&d.data.type==='file'?'var(--text-secondary)':'var(--text-primary)';
+    }});
   }}).observe(document.documentElement,{{attributes:true,attributeFilter:['data-theme']}});
 }}
-if(typeof d3!=='undefined'){{init();}}
-else{{
+if(typeof d3!=='undefined'){{
+  init();
+}}else{{
   var ds=document.querySelector('script[src*="d3"]');
   if(ds){{ds.addEventListener('load',init);}}
-  setTimeout(function(){{if(typeof d3==='undefined'){{document.getElementById('mm-fallback').style.display='block';document.getElementById('mm-svg').style.display='none';}}}},5000);
+  setTimeout(function(){{
+    if(typeof d3==='undefined'){{
+      document.getElementById('mm-fallback').style.display='block';
+      document.getElementById('mm-svg').style.display='none';
+    }}
+  }},5000);
 }}
 }})();
   </script>
