@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "name": "repo-tour",
+    "total_files": 21,
+    "total_loc": 4248
+  },
+  "top_dirs": [
+    "agents/",
+    "references/",
+    "scripts/",
+    "templates/",
+    "test-cases/"
+  ],
+  "key_files": {
+    "package_json": false,
+    "dockerfile": false,
+    "ci_config": false,
+    "readme": false,
+    "requirements_txt": false,
+    "cargo_toml": false,
+    "go_mod": false,
+    "makefile": false,
+    "docker_compose": false,
+    "env_example": false
+  },
+  "file_counts_by_ext": {
+    "md": 10,
+    "py": 8,
+    "js": 1,
+    "html": 1,
+    "css": 1
+  },
+  "files_by_size": {
+    "small": 20,
+    "medium": 1,
+    "large": 0,
+    "xlarge": 0,
+    "mega": 0
+  },
+  "mega_files": [],
+  "skip_candidates": [],
+  "readme_excerpt": "",
+  "git_info": {
+    "recent_commits": [],
+    "branch_count": 0
+  },
+  "_token_estimate": 167
+}

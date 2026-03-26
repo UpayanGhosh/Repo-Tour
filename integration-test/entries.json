@@ -1,0 +1,45 @@
+{
+  "entry_points": [
+    {
+      "file": "scripts/calibrate.py",
+      "type": "app_root",
+      "hint": "Application entry point"
+    },
+    {
+      "file": "scripts/detect_stack.py",
+      "type": "app_root",
+      "hint": "Application entry point"
+    },
+    {
+      "file": "scripts/extract_section.py",
+      "type": "cli_entry",
+      "hint": "CLI argument parsing"
+    },
+    {
+      "file": "scripts/find_entry_points.py",
+      "type": "app_root",
+      "hint": "Application entry point"
+    },
+    {
+      "file": "scripts/generate_site.py",
+      "type": "cli_entry",
+      "hint": "CLI argument parsing"
+    },
+    {
+      "file": "scripts/map_dependencies.py",
+      "type": "app_root",
+      "hint": "Application entry point"
+    },
+    {
+      "file": "scripts/merge_analysis.py",
+      "type": "app_root",
+      "hint": "Application entry point"
+    },
+    {
+      "file": "scripts/scan_repo.py",
+      "type": "app_root",
+      "hint": "Application entry point"
+    }
+  ],
+  "_token_estimate": 195
+}

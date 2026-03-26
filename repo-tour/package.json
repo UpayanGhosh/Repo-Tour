@@ -1,0 +1,36 @@
+{
+  "name": "tldr-skill",
+  "version": "1.1.0",
+  "description": "TLDR – Turn any repo into an interactive codebase tour. A Claude Code skill. Too Long, Didn't Read? Now you don't have to.",
+  "bin": {
+    "tldr-skill": "./bin/install.js"
+  },
+  "files": [
+    "bin/",
+    "SKILL.md",
+    "agents/",
+    "references/",
+    "scripts/",
+    "templates/",
+    "LICENSE.txt"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "skill",
+    "documentation",
+    "codebase",
+    "onboarding",
+    "tldr",
+    "repo-tour"
+  ],
+  "author": "upayan",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/upayan/tldr-skill"
+  }
+}

@@ -1,0 +1,1 @@
+[{"file":"src/index.ts","trigger":"npm start","narrative":"When you run npm start, this file runs first. It calls loadConfig() to read environment variables, connectDB() to open the PostgreSQL pool, then creates the Express app. All middleware is registered, routes are mounted, and app.listen(3000) starts the server."}]

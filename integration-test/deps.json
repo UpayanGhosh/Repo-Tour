@@ -1,0 +1,153 @@
+{
+  "critical_modules": [
+    {
+      "path": "scripts/generate_site.py",
+      "imports": [
+        "pathlib",
+        "Path",
+        "html",
+        "json",
+        "os",
+        "argparse",
+        "sys",
+        "glob"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 557,
+      "complexity": 10.0,
+      "read_tier": "strategic"
+    },
+    {
+      "path": "scripts/map_dependencies.py",
+      "imports": [
+        "pathlib",
+        "defaultdict",
+        "Path",
+        "re",
+        "json",
+        "os",
+        "sys",
+        "collections"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 391,
+      "complexity": 7.7,
+      "read_tier": "direct"
+    },
+    {
+      "path": "scripts/detect_stack.py",
+      "imports": [
+        "pathlib",
+        "Path",
+        "re",
+        "json",
+        "os",
+        "sys"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 336,
+      "complexity": 6.6,
+      "read_tier": "direct"
+    },
+    {
+      "path": "scripts/find_entry_points.py",
+      "imports": [
+        "pathlib",
+        "Path",
+        "re",
+        "json",
+        "os",
+        "sys"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 287,
+      "complexity": 5.7,
+      "read_tier": "direct"
+    },
+    {
+      "path": "scripts/scan_repo.py",
+      "imports": [
+        "pathlib",
+        "Path",
+        "json",
+        "os",
+        "sys",
+        "subprocess"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 235,
+      "complexity": 4.7,
+      "read_tier": "direct"
+    },
+    {
+      "path": "scripts/calibrate.py",
+      "imports": [
+        "tempfile",
+        "pathlib",
+        "Path",
+        "json",
+        "os",
+        "sys",
+        "subprocess"
+      ],
+      "imported_by": [],
+      "role": "utility",
+      "loc": 161,
+      "complexity": 3.2,
+      "read_tier": "direct"
+    },
+    {
+      "path": "scripts/merge_analysis.py",
+      "imports": [
+        "pathlib",
+        "Path",
+        "json",
+        "argparse",
+        "sys"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 122,
+      "complexity": 2.5,
+      "read_tier": "direct"
+    },
+    {
+      "path": "scripts/extract_section.py",
+      "imports": [
+        "pathlib",
+        "Path",
+        "json",
+        "argparse",
+        "sys"
+      ],
+      "imported_by": [],
+      "role": "service",
+      "loc": 78,
+      "complexity": 1.6,
+      "read_tier": "direct"
+    }
+  ],
+  "clusters": [
+    {
+      "name": "Scripts System",
+      "files": [
+        "scripts/generate_site.py",
+        "scripts/map_dependencies.py",
+        "scripts/detect_stack.py",
+        "scripts/find_entry_points.py",
+        "scripts/scan_repo.py",
+        "scripts/calibrate.py",
+        "scripts/merge_analysis.py",
+        "scripts/extract_section.py"
+      ]
+    }
+  ],
+  "external_deps_top10": [],
+  "circular_warnings": [],
+  "_token_estimate": 492
+}

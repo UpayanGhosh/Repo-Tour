@@ -1,0 +1,738 @@
+#!/usr/bin/env python3
+"""generate_site.py — Assembles final website from templates + content JSON. Zero LLM. Unlimited output."""
+
+import os
+import sys
+import json
+import html
+import argparse
+import glob
+from pathlib import Path
+
+# ============================================================
+# CHUNK 1: Main + File Loading + Template Injection
+# ============================================================
+
+LANGUAGE_COLORS = {
+    'TypeScript':   ('--accent:#3b82f6;--accent-dim:#2563eb;--accent-glow:rgba(59,130,246,0.15);'),
+    'JavaScript':   ('--accent:#eab308;--accent-dim:#ca8a04;--accent-glow:rgba(234,179,8,0.15);'),
+    'Python':       ('--accent:#22c55e;--accent-dim:#16a34a;--accent-glow:rgba(34,197,94,0.15);'),
+    'Rust':         ('--accent:#f97316;--accent-dim:#ea580c;--accent-glow:rgba(249,115,22,0.15);'),
+    'Go':           ('--accent:#06b6d4;--accent-dim:#0891b2;--accent-glow:rgba(6,182,212,0.15);'),
+    'Java':         ('--accent:#ef4444;--accent-dim:#dc2626;--accent-glow:rgba(239,68,68,0.15);'),
+    'Kotlin':       ('--accent:#a855f7;--accent-dim:#9333ea;--accent-glow:rgba(168,85,247,0.15);'),
+    'C#':           ('--accent:#a855f7;--accent-dim:#9333ea;--accent-glow:rgba(168,85,247,0.15);'),
+    'Ruby':         ('--accent:#f43f5e;--accent-dim:#e11d48;--accent-glow:rgba(244,63,94,0.15);'),
+    'PHP':          ('--accent:#6366f1;--accent-dim:#4f46e5;--accent-glow:rgba(99,102,241,0.15);'),
+}
+
+# Typography pairings keyed by project name hash mod 4
+FONT_PAIRINGS = [
+    ('Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900', 'DM+Sans:wght@300..700', 'Fraunces', 'DM Sans'),
+    ('Playfair+Display:wght@400;600;700', 'Outfit:wght@300;400;500;600', 'Playfair Display', 'Outfit'),
+    ('Syne:wght@400;600;700;800', 'Inter:wght@300;400;500', 'Syne', 'Inter'),
+    ('Cormorant:ital,wght@0,400;0,600;0,700;1,400', 'Plus+Jakarta+Sans:wght@300;400;500;600', 'Cormorant', 'Plus Jakarta Sans'),
+]
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description='Generate RepoTour website from content JSON')
+    p.add_argument('--analysis',    required=True, help='Path to repo-analysis.json')
+    p.add_argument('--content-dir', required=True, help='Directory with site-content/*.json files')
+    p.add_argument('--templates',   required=True, help='Path to templates/ directory')
+    p.add_argument('--output',      required=True, help='Output directory')
+    return p.parse_args()
+
+
+def load_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding='utf-8'))
+    except Exception as e:
+        print(f'Warning: could not load {path}: {e}', file=sys.stderr)
+        return {}
+
+
+def load_templates(templates_dir):
+    td = Path(templates_dir)
+    return {
+        'html': (td / 'index.html').read_text(encoding='utf-8'),
+        'css':  (td / 'styles.css').read_text(encoding='utf-8'),
+        'js':   (td / 'app.js').read_text(encoding='utf-8'),
+    }
+
+
+def load_all_content(content_dir):
+    """Load all site-content/*.json files; merge module batches into one list."""
+    cd = Path(content_dir)
+    content = {}
+    module_batches = {}
+
+    for f in sorted(cd.glob('*.json')):
+        name = f.stem
+        data = load_json(str(f))
+        if name.startswith('modules_batch_'):
+            idx = int(name.split('_')[-1])
+            module_batches[idx] = data
+        else:
+            content[name] = data
+
+    # Merge module batches in order
+    if module_batches:
+        all_modules = []
+        for i in sorted(module_batches.keys()):
+            batch = module_batches[i]
+            if isinstance(batch, list):
+                all_modules.extend(batch)
+        content['modules'] = all_modules
+
+    return content
+
+
+def get_font_pairing(project_name):
+    idx = sum(ord(c) for c in project_name) % len(FONT_PAIRINGS)
+    pair = FONT_PAIRINGS[idx]
+    url = f'https://fonts.googleapis.com/css2?family={pair[0]}&family={pair[1]}&display=swap'
+    return url, pair[2], pair[3]
+
+
+def get_color_vars(language):
+    css = LANGUAGE_COLORS.get(language, '--accent:#64748b;--accent-dim:#475569;--accent-glow:rgba(100,116,139,0.15);')
+    return ':root{' + css + '}'
+
+
+def assemble(templates, sections_html, nav_html, search_index_js, analysis, project_name):
+    """Replace all {{PLACEHOLDER}} markers in the HTML template."""
+    lang = (analysis.get('stack') or {}).get('primary_language', 'Unknown')
+    font_url, font_heading, font_body = get_font_pairing(project_name)
+    color_vars = get_color_vars(lang)
+
+    out = templates['html']
+    replacements = {
+        '{{PROJECT_NAME}}':   html.escape(project_name),
+        '{{CSS}}':            templates['css'],
+        '{{JS}}':             templates['js'],
+        '{{COLOR_VARS}}':     color_vars,
+        '{{NAV}}':            nav_html,
+        '{{OVERVIEW}}':       sections_html.get('overview', ''),
+        '{{ARCHITECTURE}}':   sections_html.get('architecture', ''),
+        '{{MINDMAP}}':        sections_html.get('mindmap', ''),
+        '{{TECH_STACK}}':     sections_html.get('tech_stack', ''),
+        '{{ENTRY_POINTS}}':   sections_html.get('entry_points', ''),
+        '{{MODULES}}':        sections_html.get('modules', ''),
+        '{{WORKFLOWS}}':      sections_html.get('workflows', ''),
+        '{{DIRECTORY_GUIDE}}':sections_html.get('directory_guide', ''),
+        '{{GLOSSARY}}':       sections_html.get('glossary', ''),
+        '{{GETTING_STARTED}}':sections_html.get('getting_started', ''),
+        '{{COOKBOOK}}':       sections_html.get('cookbook', ''),
+        '{{SEARCH_INDEX}}':   search_index_js,
+        '{{FONT_URL}}':       font_url,
+        '{{FONT_HEADING}}':   font_heading,
+        '{{FONT_BODY}}':      font_body,
+    }
+    for key, val in replacements.items():
+        out = out.replace(key, val)
+    return out
+
+
+# ============================================================
+# CHUNK 2: Per-Section HTML Generators
+# ============================================================
+
+def e(s):
+    """html.escape shorthand."""
+    return html.escape(str(s)) if s is not None else ''
+
+
+def gen_overview(data):
+    if not data:
+        return ''
+    return f'''<section class="section" id="overview">
+  <p class="section-label">Overview</p>
+  <h2 class="section-title">What is this project?</h2>
+  <p style="font-size:1.1rem;line-height:1.7;color:var(--text-primary)">{e(data.get("summary",""))}</p>
+  {f'<p><strong>Audience:</strong> {e(data.get("audience",""))}</p>' if data.get("audience") else ""}
+  {f'<p><strong>Approach:</strong> {e(data.get("approach",""))}</p>' if data.get("approach") else ""}
+</section>'''
+
+
+def gen_architecture(data):
+    if not data:
+        return ''
+    layers_html = ''
+    for layer in (data.get('layers') or []):
+        files_html = ''.join(f'<span class="relation-chip">{e(f)}</span>' for f in (layer.get('key_files') or [])[:4])
+        layers_html += f'''<div class="module-card" style="margin-bottom:0.75rem">
+    <div class="module-name">{e(layer.get("name",""))}</div>
+    <p style="font-size:0.875rem;color:var(--text-secondary);margin:0.3rem 0 0.5rem">{e(layer.get("responsibility",""))}</p>
+    <div class="module-relations">{files_html}</div>
+  </div>'''
+
+    mermaid_html = ''
+    if data.get('mermaid'):
+        mermaid_html = f'<div class="mermaid-wrap"><div class="mermaid" data-clickable="true" data-diagram="{e(data["mermaid"])}"></div></div>'
+
+    return f'''<section class="section" id="architecture">
+  <p class="section-label">Architecture</p>
+  <h2 class="section-title">How is it organized?</h2>
+  {f'<p style="font-size:1rem;color:var(--text-secondary);margin-bottom:1.5rem;font-style:italic">{e(data.get("analogy",""))}</p>' if data.get("analogy") else ""}
+  {mermaid_html}
+  <h3 style="margin-top:1.5rem;margin-bottom:1rem">Layers</h3>
+  {layers_html}
+</section>'''
+
+
+def gen_tech_stack(data):
+    if not data:
+        return ''
+    items = data if isinstance(data, list) else []
+    cards = ''.join(f'''<div class="stack-card">
+    <div class="stack-card-role">{e(item.get("role",""))}</div>
+    <div class="stack-card-name">{e(item.get("name",""))}</div>
+    <p class="stack-card-why">{e(item.get("why",""))}</p>
+  </div>''' for item in items)
+    return f'''<section class="section" id="tech-stack">
+  <p class="section-label">Tech Stack</p>
+  <h2 class="section-title">What's it built with?</h2>
+  <div class="stack-grid">{cards}</div>
+</section>'''
+
+
+def gen_entry_points(data):
+    if not data:
+        return ''
+    items = data if isinstance(data, list) else []
+    cards = ''
+    for ep in items:
+        cards += f'''<div class="module-card">
+    <div class="module-card-header">
+      <div>
+        <div class="module-name">{e(ep.get("file",""))}</div>
+        <div class="module-path">Trigger: {e(ep.get("trigger",""))}</div>
+      </div>
+    </div>
+    <p style="font-size:0.875rem;color:var(--text-secondary)">{e(ep.get("narrative",""))}</p>
+  </div>'''
+    return f'''<section class="section" id="entry-points">
+  <p class="section-label">Entry Points</p>
+  <h2 class="section-title">Where does it start?</h2>
+  <div class="modules-grid" style="margin-top:1rem">{cards}</div>
+</section>'''
+
+
+def gen_modules(data):
+    if not data:
+        return ''
+    modules = data if isinstance(data, list) else []
+    cards = ''
+    for mod in modules:
+        badge = f'<span class="module-role-badge">{e(mod.get("role",""))}</span>' if mod.get('role') else ''
+        large_notice = ''
+        if mod.get('mega_file'):
+            large_notice = '<div class="large-file-notice">Generated or monolithic file — not analyzed in detail.</div>'
+        elif mod.get('large_file'):
+            large_notice = '<div class="large-file-notice">Large module — explanation covers public interface only.</div>'
+
+        depends_on = ''.join(f'<span class="relation-chip">{e(d)}</span>' for d in (mod.get("depends_on") or [])[:6])
+        depended_by = ''.join(f'<span class="relation-chip">{e(d)}</span>' for d in (mod.get("depended_by") or [])[:6])
+        relations_html = ''
+        if depends_on or depended_by:
+            relations_html = f'''<div class="module-relations">
+      {f'<span class="relation-label">uses →</span>{depends_on}' if depends_on else ""}
+      {f'<span class="relation-label" style="margin-left:0.5rem">used by ←</span>{depended_by}' if depended_by else ""}
+    </div>'''
+
+        gotcha_html = f'<div class="module-gotcha">{e(mod.get("gotchas",""))}</div>' if mod.get('gotchas') else ''
+
+        slug = mod.get('path', '').replace('/', '-').replace('.', '-').lower()
+        has_detail = bool(mod.get('detailed_explanation'))
+        toggle = '<button class="toggle-btn">Show Details</button>' if has_detail else ''
+        detail_block = f'<div class="detail-view"><p style="font-size:0.875rem;color:var(--text-secondary)">{e(mod.get("detailed_explanation",""))}</p></div>' if has_detail else ''
+
+        cards += f'''<div class="module-card" id="module-{e(slug)}" data-toggleable="true">
+    <div class="module-card-header">
+      <div>
+        <div class="module-name">{e(mod.get("name") or mod.get("path",""))}</div>
+        <div class="module-path">{e(mod.get("path",""))}</div>
+      </div>
+      {badge}
+    </div>
+    {toggle}
+    <div class="simple-view">
+      <p style="font-size:0.875rem;color:var(--text-secondary)">{e(mod.get("simple_explanation",""))}</p>
+    </div>
+    {detail_block}
+    {large_notice}
+    {gotcha_html}
+    {relations_html}
+  </div>'''
+
+    return f'''<section class="section" id="modules">
+  <p class="section-label">Modules</p>
+  <h2 class="section-title">Key files explained</h2>
+  <div class="modules-grid" style="margin-top:1rem">{cards}</div>
+</section>'''
+
+
+def gen_workflows(data):
+    if not data:
+        return ''
+    workflows = (data.get('workflows') or []) if isinstance(data, dict) else []
+    wf_html = ''
+    for wf in workflows:
+        steps_html = ''
+        for step in (wf.get('steps') or []):
+            steps_html += f'''<div class="workflow-step">
+      <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
+      <div class="step-body">
+        <div class="step-file">{e(step.get("file",""))}</div>
+        <div class="step-function">{e(step.get("function",""))}</div>
+        <div class="step-narrative">{e(step.get("narrative",""))}</div>
+      </div>
+    </div>'''
+
+        mermaid_html = ''
+        if wf.get('mermaid'):
+            mermaid_html = f'<div class="mermaid-wrap"><div class="mermaid" data-diagram="{e(wf["mermaid"])}"></div></div>'
+
+        wf_html += f'''<div class="workflow">
+    <h3>{e(wf.get("name",""))}</h3>
+    <div class="workflow-trigger">{e(wf.get("trigger",""))}</div>
+    {mermaid_html}
+    <div class="workflow-steps">{steps_html}</div>
+  </div>'''
+
+    return f'''<section class="section" id="workflows">
+  <p class="section-label">Workflows</p>
+  <h2 class="section-title">How does it behave?</h2>
+  {wf_html}
+</section>'''
+
+
+def gen_directory_guide(data):
+    if not data:
+        return ''
+    items = data if isinstance(data, list) else []
+    rows = ''.join(f'''<div class="dir-item">
+    <div class="dir-path">{e(d.get("path",""))}</div>
+    <div class="dir-purpose">{e(d.get("purpose",""))}</div>
+    {f'<div class="dir-when">{e(d.get("when_to_look_here",""))}</div>' if d.get("when_to_look_here") else ""}
+  </div>''' for d in items)
+    return f'''<section class="section" id="directory-guide">
+  <p class="section-label">Directory Guide</p>
+  <h2 class="section-title">Where is everything?</h2>
+  <div class="dir-list">{rows}</div>
+</section>'''
+
+
+def gen_glossary(data):
+    if not data:
+        return ''
+    glossary = (data.get('glossary') or []) if isinstance(data, dict) else []
+    terms_html = ''.join(f'''<div class="glossary-item">
+    <div class="glossary-term">{e(item.get("term",""))}</div>
+    <div class="glossary-def">{e(item.get("definition",""))}</div>
+  </div>''' for item in glossary)
+    return f'''<section class="section" id="glossary">
+  <p class="section-label">Glossary</p>
+  <h2 class="section-title">Terminology</h2>
+  <div class="glossary-grid">{terms_html}</div>
+</section>'''
+
+
+def gen_getting_started(data):
+    if not data:
+        return ''
+    gs = (data.get('getting_started') or {}) if isinstance(data, dict) else {}
+    steps = []
+    if gs.get('clone'):
+        steps.append(('Clone', f'<pre><code>{e(gs["clone"])}</code></pre>'))
+    if gs.get('install'):
+        steps.append(('Install', f'<pre><code>{e(gs["install"])}</code></pre>'))
+    if gs.get('env_vars'):
+        rows = ''.join(f'<tr><td>{e(v.get("name",""))}</td><td>{e(v.get("description",""))}</td></tr>'
+                       for v in gs['env_vars'])
+        steps.append(('Configure env', f'<table class="env-vars-table"><thead><tr><th>Variable</th><th>Description</th></tr></thead><tbody>{rows}</tbody></table>'))
+    if gs.get('run'):
+        steps.append(('Run', f'<pre><code>{e(gs["run"])}</code></pre>'))
+    if gs.get('first_tasks'):
+        tasks = ''.join(f'<li>{e(t)}</li>' for t in gs['first_tasks'])
+        steps.append(('First steps', f'<ul class="first-tasks">{tasks}</ul>'))
+
+    steps_html = ''.join(f'''<div class="setup-step">
+    <div class="setup-num">{i+1}</div>
+    <div style="flex:1"><strong>{e(label)}</strong>{content}</div>
+  </div>''' for i, (label, content) in enumerate(steps))
+
+    # Learning path (day 1 / week 1)
+    lp = gs.get('learning_path') or {}
+    learning_path_html = ''
+    if lp:
+        day1 = lp.get('day_1') or []
+        week1 = lp.get('week_1') or []
+        day1_items = ''.join(f'<li>{e(item)}</li>' for item in day1)
+        week1_items = ''.join(f'<li>{e(item)}</li>' for item in week1)
+        learning_path_html = f'''<div class="learning-path">
+    <h3 style="margin-top:1.5rem;margin-bottom:0.75rem">Learning Path</h3>
+    <div class="learning-path-grid">
+      {f'<div class="learning-phase"><div class="learning-phase-label">Day 1 — Orientation</div><ul class="learning-list">{day1_items}</ul></div>' if day1_items else ""}
+      {f'<div class="learning-phase"><div class="learning-phase-label">Week 1 — First Contributions</div><ul class="learning-list">{week1_items}</ul></div>' if week1_items else ""}
+    </div>
+  </div>'''
+
+    return f'''<section class="section" id="getting-started">
+  <p class="section-label">Getting Started</p>
+  <h2 class="section-title">How do I run it?</h2>
+  <div class="setup-steps">{steps_html}</div>
+  {learning_path_html}
+</section>'''
+
+
+def gen_mindmap(analysis):
+    """Build a collapsible tree from repo-analysis.json. Zero LLM — pure Python."""
+    if not analysis:
+        return ''
+    meta = analysis.get('meta') or {}
+    project_name = e(meta.get('name', 'Project'))
+    entry_points = analysis.get('entry_points') or []
+    clusters = analysis.get('clusters') or []
+    critical_modules = analysis.get('critical_modules') or []
+    external_deps = analysis.get('external_deps_top10') or []
+    top_dirs = analysis.get('top_dirs') or []
+    stack = analysis.get('stack') or {}
+
+    module_paths = {m.get('path', '') for m in critical_modules}
+
+    def _slug(path):
+        return path.replace('/', '-').replace('.', '-').lower()
+
+    def _leaf(path, anchor=None):
+        name = path.split('/')[-1] or path
+        if anchor:
+            return f'<li><a href="#{html.escape(anchor)}" class="tm-leaf">{e(name)}</a></li>'
+        return f'<li><span class="tm-leaf">{e(name)}</span></li>'
+
+    def _branch(label, items_html, expanded=False):
+        disp = '' if expanded else 'display:none'
+        arrow = '▼' if expanded else '▶'
+        state = 'open' if expanded else 'closed'
+        return (f'<li class="tm-branch" data-state="{state}">'
+                f'<span class="tm-node" onclick="tmToggle(this)">'
+                f'<span class="tm-arrow">{arrow}</span>'
+                f'<span class="tm-label">{e(label)}</span>'
+                f'</span>'
+                f'<ul class="tm-children" style="{disp}">{items_html}</ul>'
+                f'</li>')
+
+    sections = []
+
+    # 1. Entry Points (expanded by default)
+    if entry_points:
+        items = ''.join(_leaf(ep.get('file', ''), 'entry-points') for ep in entry_points[:12])
+        sections.append(_branch('Entry Points', items, expanded=True))
+
+    # 2. Module clusters
+    if clusters:
+        for cluster in clusters[:20]:
+            name = cluster.get('name', 'Modules')
+            files = cluster.get('files') or []
+            items = ''
+            for f in files[:20]:
+                anchor = 'module-' + _slug(f) if f in module_paths else None
+                items += _leaf(f, anchor)
+            if items:
+                sections.append(_branch(name, items))
+    elif critical_modules:
+        # Fallback: flat module list when no clusters
+        items = ''.join(_leaf(m.get('path', ''), 'module-' + _slug(m.get('path', '')))
+                        for m in critical_modules[:30])
+        sections.append(_branch('Modules', items))
+
+    # 3. Tech Stack
+    stack_items = ''
+    for label in filter(None, [stack.get('framework'), stack.get('primary_language'),
+                                stack.get('database'), stack.get('test_framework'),
+                                stack.get('package_manager')]):
+        stack_items += f'<li><a href="#tech-stack" class="tm-leaf">{e(label)}</a></li>'
+    for dep in external_deps[:8]:
+        stack_items += f'<li><a href="#tech-stack" class="tm-leaf">{e(dep.get("name",""))}</a></li>'
+    if stack_items:
+        sections.append(_branch('Tech Stack', stack_items))
+
+    # 4. Directory structure
+    if top_dirs:
+        dir_items = ''.join(
+            f'<li><a href="#directory-guide" class="tm-leaf">{e(d)}</a></li>'
+            for d in top_dirs[:20]
+        )
+        sections.append(_branch('Directories', dir_items))
+
+    if not sections:
+        return ''
+
+    total = meta.get('total_files', 0)
+    subtitle = f'{total:,} total files · click branches to expand' if total else 'click branches to expand'
+    tree_html = ''.join(sections)
+
+    return f'''<section class="section" id="codebase-map">
+  <p class="section-label">Codebase Map</p>
+  <h2 class="section-title">Full codebase at a glance</h2>
+  <p style="color:var(--text-secondary);margin-bottom:1rem;font-size:0.875rem">{e(subtitle)}</p>
+  <div style="margin-bottom:1rem;display:flex;gap:0.5rem">
+    <button class="toggle-btn" onclick="tmExpandAll()">Expand All</button>
+    <button class="toggle-btn" onclick="tmCollapseAll()">Collapse All</button>
+  </div>
+  <style>
+    .tm-branch{{list-style:none;margin:0;padding:0}}
+    .tm-node{{display:flex;align-items:center;gap:0.4rem;cursor:pointer;padding:0.25rem 0.4rem;border-radius:4px;user-select:none;font-size:0.875rem}}
+    .tm-node:hover{{background:var(--bg-tertiary,rgba(0,0,0,0.05))}}
+    .tm-arrow{{font-size:0.6rem;width:1rem;text-align:center;color:var(--text-secondary);flex-shrink:0}}
+    .tm-label{{color:var(--text-primary);font-weight:500}}
+    .tm-children{{list-style:none;margin:0;padding:0 0 0 1.5rem;border-left:1px solid var(--border,rgba(0,0,0,0.1))}}
+    .tm-leaf{{display:block;font-size:0.8125rem;color:var(--text-secondary);padding:0.15rem 0.4rem;text-decoration:none;border-radius:3px}}
+    .tm-leaf:hover{{color:var(--accent,#3b82f6);background:var(--bg-tertiary,rgba(0,0,0,0.05))}}
+    a.tm-leaf{{color:var(--accent,#3b82f6);cursor:pointer}}
+  </style>
+  <ul class="tm-branch" id="codebase-tree" style="padding:0">{tree_html}</ul>
+  <script>
+    function tmToggle(el){{var li=el.parentElement,ch=li.querySelector('.tm-children'),ar=el.querySelector('.tm-arrow'),open=li.dataset.state==='closed';li.dataset.state=open?'open':'closed';ch.style.display=open?'':'none';ar.textContent=open?'▼':'▶';}}
+    function tmExpandAll(){{document.querySelectorAll('#codebase-tree .tm-branch').forEach(function(li){{li.dataset.state='open';var ch=li.querySelector('.tm-children');if(ch)ch.style.display='';var ar=li.querySelector('.tm-arrow');if(ar)ar.textContent='▼';}});}}
+    function tmCollapseAll(){{document.querySelectorAll('#codebase-tree .tm-branch').forEach(function(li){{if(li.parentElement.id!=='codebase-tree'){{li.dataset.state='closed';var ch=li.querySelector('.tm-children');if(ch)ch.style.display='none';var ar=li.querySelector('.tm-arrow');if(ar)ar.textContent='▶';}}}});}}
+  </script>
+</section>'''
+
+
+def gen_cookbook(data):
+    if not data:
+        return ''
+    recipes = (data.get('recipes') or []) if isinstance(data, dict) else []
+    if not recipes:
+        return ''
+
+    framework = (data.get('framework') or '') if isinstance(data, dict) else ''
+    subtitle = f'Common tasks in {e(framework)}' if framework else 'Common developer tasks'
+
+    recipe_cards = ''
+    for i, recipe in enumerate(recipes):
+        steps_html = ''.join(
+            f'<li class="recipe-step">{e(step)}</li>'
+            for step in (recipe.get('steps') or [])
+        )
+        files_html = ''.join(
+            f'<span class="relation-chip">{e(f)}</span>'
+            for f in (recipe.get('files_to_touch') or [])[:5]
+        )
+        code_hint = recipe.get('code_hint', '')
+        code_block = f'<pre class="recipe-code"><code>{e(code_hint)}</code></pre>' if code_hint else ''
+
+        recipe_cards += f'''<div class="recipe-card" id="recipe-{i}">
+    <div class="recipe-title">{e(recipe.get("title",""))}</div>
+    <ol class="recipe-steps">{steps_html}</ol>
+    {code_block}
+    {f'<div class="recipe-files"><span class="relation-label">touch →</span>{files_html}</div>' if files_html else ""}
+  </div>'''
+
+    return f'''<section class="section" id="cookbook">
+  <p class="section-label">Developer Cookbook</p>
+  <h2 class="section-title">How do I...?</h2>
+  <p style="color:var(--text-secondary);margin-bottom:1.5rem">{subtitle}</p>
+  <div class="cookbook-grid">{recipe_cards}</div>
+</section>'''
+
+
+# ============================================================
+# CHUNK 3: Search Index + Navigation + Output + main()
+# ============================================================
+
+def build_search_index(content):
+    """Tokenize all text content into searchable entries."""
+    entries = []
+
+    def add(section, text, element_id=''):
+        if not text or not text.strip():
+            return
+        entries.append({
+            'id': element_id,
+            'section': section,
+            'text': text[:400],
+            'snippet': text[:120]
+        })
+
+    # Overview
+    ov = content.get('overview', {})
+    if ov:
+        add('Overview', (ov.get('summary', '') + ' ' + ov.get('approach', '')).strip(), 'overview')
+
+    # Architecture
+    arch = content.get('architecture', {})
+    if arch:
+        add('Architecture', arch.get('analogy', ''), 'architecture')
+        for layer in (arch.get('layers') or []):
+            add('Architecture — ' + layer.get('name', ''), layer.get('responsibility', ''), 'architecture')
+
+    # Tech stack
+    for item in (content.get('tech_stack') or []):
+        add('Tech Stack — ' + item.get('name', ''), item.get('why', ''), 'tech-stack')
+
+    # Entry points
+    for ep in (content.get('entry_points') or []):
+        add('Entry Points — ' + ep.get('file', ''), ep.get('narrative', ''), 'entry-points')
+
+    # Modules
+    for mod in (content.get('modules') or []):
+        slug = mod.get('path', '').replace('/', '-').replace('.', '-').lower()
+        text = ' '.join(filter(None, [
+            mod.get('simple_explanation', ''),
+            mod.get('detailed_explanation', '')
+        ]))
+        add('Module — ' + (mod.get('name') or mod.get('path', '')), text, 'module-' + slug)
+
+    # Workflows
+    wf_data = content.get('workflows', {})
+    for wf in ((wf_data.get('workflows') or []) if isinstance(wf_data, dict) else []):
+        for step in (wf.get('steps') or []):
+            add('Workflow — ' + wf.get('name', ''), step.get('narrative', ''), 'workflows')
+
+    # Directory guide
+    for d in (content.get('directory_guide') or []):
+        add('Directory — ' + d.get('path', ''), d.get('purpose', ''), 'directory-guide')
+
+    # Glossary
+    gsg = content.get('glossary_getting_started', {})
+    if isinstance(gsg, dict):
+        for item in (gsg.get('glossary') or []):
+            add('Glossary — ' + item.get('term', ''), item.get('definition', ''), 'glossary')
+
+    # Cookbook
+    cb = content.get('cookbook', {})
+    if isinstance(cb, dict):
+        for recipe in (cb.get('recipes') or []):
+            text = ' '.join(filter(None, [recipe.get('title', ''), ' '.join(recipe.get('steps') or [])]))
+            add('Cookbook — ' + recipe.get('title', ''), text, 'cookbook')
+
+    return json.dumps(entries)
+
+
+def build_navigation(content, has_mindmap=False):
+    """Generate sidebar navigation HTML."""
+    SECTION_MAP = [
+        ('overview',       'overview',       'Overview'),
+        ('architecture',   'architecture',   'Architecture'),
+        ('mindmap',        'codebase-map',   'Codebase Map'),
+        ('tech_stack',     'tech-stack',     'Tech Stack'),
+        ('entry_points',   'entry-points',   'Entry Points'),
+        ('modules',        'modules',        'Modules'),
+        ('workflows',      'workflows',      'Workflows'),
+        ('directory_guide','directory-guide','Directory Guide'),
+        ('glossary_getting_started', 'glossary', 'Glossary'),
+        ('glossary_getting_started', 'getting-started', 'Getting Started'),
+        ('cookbook',                 'cookbook',         'Developer Cookbook'),
+    ]
+
+    nav = ''
+    seen = set()
+    for key, anchor, label in SECTION_MAP:
+        auto_show = key in ('glossary_getting_started',) or (key == 'mindmap' and has_mindmap)
+        if key in content or auto_show:
+            if anchor in seen:
+                continue
+            seen.add(anchor)
+            nav += f'<a href="#{anchor}" class="nav-link" data-section="{anchor}">{html.escape(label)}</a>\n'
+
+    # Module sub-links
+    modules = content.get('modules') or []
+    if modules:
+        module_links = ''
+        for mod in modules[:12]:
+            name = mod.get('name') or mod.get('path', '')
+            slug = mod.get('path', '').replace('/', '-').replace('.', '-').lower()
+            module_links += f'<a href="#module-{html.escape(slug)}" class="nav-link nav-link-sub">{html.escape(name[:30])}</a>\n'
+        if module_links:
+            nav = nav.replace(
+                'class="nav-link" data-section="modules"',
+                'class="nav-link nav-group-toggle" data-section="modules"'
+            )
+            nav += f'<div class="nav-group-children">\n{module_links}</div>\n'
+
+    return nav
+
+
+def write_readme(output_dir, project_name):
+    """Write a README.md for the output folder."""
+    readme = f"""# {project_name} — RepoTour
+
+This is an auto-generated codebase tour for **{project_name}**.
+
+## View
+
+Open `index.html` in your browser:
+```
+open index.html
+```
+
+## Deploy
+
+**Vercel**: `npx vercel .`
+**Netlify**: `npx netlify deploy --dir .`
+**GitHub Pages**: `npx gh-pages -d .`
+
+---
+Generated by [RepoTour](https://github.com/upayan/repo-tour)
+"""
+    (Path(output_dir) / 'README.md').write_text(readme, encoding='utf-8')
+
+
+def main():
+    args = parse_args()
+
+    # Load inputs
+    analysis = load_json(args.analysis)
+    templates = load_templates(args.templates)
+    content = load_all_content(args.content_dir)
+
+    project_name = (analysis.get('meta') or {}).get('name', 'Project')
+
+    # Generate per-section HTML
+    mindmap_html = gen_mindmap(analysis)
+    sections_html = {
+        'overview':       gen_overview(content.get('overview')),
+        'architecture':   gen_architecture(content.get('architecture')),
+        'mindmap':        mindmap_html,
+        'tech_stack':     gen_tech_stack(content.get('tech_stack')),
+        'entry_points':   gen_entry_points(content.get('entry_points')),
+        'modules':        gen_modules(content.get('modules')),
+        'workflows':      gen_workflows(content.get('workflows')),
+        'directory_guide':gen_directory_guide(content.get('directory_guide')),
+        'glossary':       gen_glossary(content.get('glossary_getting_started')),
+        'getting_started':gen_getting_started(content.get('glossary_getting_started')),
+        'cookbook':       gen_cookbook(content.get('cookbook')),
+    }
+
+    # Build navigation + search index
+    nav_html = build_navigation(content, has_mindmap=bool(mindmap_html))
+    search_index_js = build_search_index(content)
+
+    # Assemble
+    output_html = assemble(templates, sections_html, nav_html, search_index_js, analysis, project_name)
+
+    # Write output
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / 'index.html'
+    out_file.write_text(output_html, encoding='utf-8')
+    write_readme(str(out_dir), project_name)
+
+    # Stats
+    stats = {
+        'output_file': str(out_file),
+        'size_bytes': len(output_html.encode('utf-8')),
+        'size_kb': round(len(output_html.encode('utf-8')) / 1024, 1),
+        'sections_generated': [k for k, v in sections_html.items() if v],
+        'modules_count': len(content.get('modules') or []),
+        'search_entries': len(json.loads(search_index_js)),
+        'project_name': project_name,
+    }
+    print(json.dumps(stats, indent=2))
+
+
+if __name__ == '__main__':
+    main()

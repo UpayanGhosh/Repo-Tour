@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RepoTour — Design Options</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #fafafa; min-height: 100vh; padding: 3rem 2rem; }
+  .header { text-align: center; margin-bottom: 3.5rem; }
+  .header h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+  .header p { color: #71717a; font-size: 1rem; }
+  .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; max-width: 1100px; margin: 0 auto; }
+  .option { background: #141418; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden; transition: border-color 200ms, transform 200ms; }
+  .option:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-2px); }
+  .preview-frame { width: 100%; height: 340px; overflow: hidden; position: relative; background: #000; }
+  .preview-frame iframe { width: 200%; height: 200%; transform: scale(0.5); transform-origin: top left; border: none; pointer-events: none; }
+  .option-info { padding: 1.25rem 1.5rem 1.5rem; }
+  .option-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #52525b; margin-bottom: 0.35rem; }
+  .option-name { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.35rem; }
+  .option-name span { font-weight: 400; color: #71717a; }
+  .option-desc { font-size: 0.82rem; color: #71717a; line-height: 1.55; margin-bottom: 1.125rem; }
+  .pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.125rem; }
+  .pill { font-size: 0.68rem; font-weight: 600; padding: 0.25em 0.65em; border-radius: 20px; border: 1px solid; }
+  .open-btn { display: flex; align-items: center; justify-content: center; gap: 0.4rem; width: 100%; padding: 0.7rem; background: #27272a; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fafafa; font-size: 0.875rem; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 200ms; }
+  .open-btn:hover { background: #3f3f46; border-color: rgba(255,255,255,0.2); }
+  .open-btn svg { width: 14px; height: 14px; }
+  .option-a .option-name { color: #fafafa; }
+  .option-a .pill-1 { background: rgba(250,250,250,0.06); color: #a1a1aa; border-color: rgba(255,255,255,0.1); }
+  .option-b .option-name { color: #a78bfa; }
+  .option-b .pill-1 { background: rgba(167,139,250,0.1); color: #a78bfa; border-color: rgba(167,139,250,0.3); }
+  .option-c .option-name { color: #22d3ee; }
+  .option-c .pill-1 { background: rgba(34,211,238,0.08); color: #22d3ee; border-color: rgba(34,211,238,0.25); }
+  .footer-note { text-align: center; margin-top: 3rem; color: #3f3f46; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Pick your design</h1>
+  <p>Three directions — all modern, all minimal. Click to open full preview.</p>
+</div>
+
+<div class="options">
+
+  <div class="option option-a">
+    <div class="preview-frame">
+      <iframe src="a/index.html" title="Option A preview" loading="lazy"></iframe>
+    </div>
+    <div class="option-info">
+      <div class="option-label">Option A</div>
+      <div class="option-name">Ghost <span>/ Editorial</span></div>
+      <div class="option-desc">Pure white, maximum whitespace, thin hairline borders. Inspired by Linear and Ghost. Heading font gives it a literary, editorial quality. Module cards are borderless rows.</div>
+      <div class="pills">
+        <span class="pill pill-1">White background</span>
+        <span class="pill pill-1">Black accent</span>
+        <span class="pill pill-1">Hairline borders</span>
+        <span class="pill pill-1">Generous spacing</span>
+      </div>
+      <a href="a/index.html" target="_blank" class="open-btn">
+        Open full preview
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <div class="option option-b">
+    <div class="preview-frame">
+      <iframe src="b/index.html" title="Option B preview" loading="lazy"></iframe>
+    </div>
+    <div class="option-info">
+      <div class="option-label">Option B</div>
+      <div class="option-name">Obsidian <span>/ Dark Pro</span></div>
+      <div class="option-desc">Near-black background, violet accent, glassy module cards. Inspired by Vercel and Raycast. Feels premium and technical. Dark by default, switches to light mode cleanly.</div>
+      <div class="pills">
+        <span class="pill pill-1">Dark first</span>
+        <span class="pill pill-1">Violet accent</span>
+        <span class="pill pill-1">Glassy cards</span>
+        <span class="pill pill-1">Premium feel</span>
+      </div>
+      <a href="b/index.html" target="_blank" class="open-btn">
+        Open full preview
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <div class="option option-c">
+    <div class="preview-frame">
+      <iframe src="c/index.html" title="Option C preview" loading="lazy"></iframe>
+    </div>
+    <div class="option-info">
+      <div class="option-label">Option C</div>
+      <div class="option-name">Daylight <span>/ Warm Clean</span></div>
+      <div class="option-desc">Warm off-white background, cyan/teal accent, subtle card shadows. Inspired by Craft and Notion. Approachable and readable. Cards have gentle lift. Most inviting of the three.</div>
+      <div class="pills">
+        <span class="pill pill-1">Warm white</span>
+        <span class="pill pill-1">Cyan accent</span>
+        <span class="pill pill-1">Card shadows</span>
+        <span class="pill pill-1">Approachable</span>
+      </div>
+      <a href="c/index.html" target="_blank" class="open-btn">
+        Open full preview
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer-note">Tell me which option you like — I'll wire it in and continue to Sprint 4.</div>
+</body>
+</html>

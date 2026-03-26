@@ -1,0 +1,17 @@
+{
+  "stack": {
+    "primary_language": "Python",
+    "framework": null,
+    "runtime": "Python",
+    "database": null,
+    "test_framework": null,
+    "build_tool": null,
+    "ci": null,
+    "package_manager": null,
+    "dep_count": {
+      "prod": 0,
+      "dev": 0
+    }
+  },
+  "_token_estimate": 59
+}
