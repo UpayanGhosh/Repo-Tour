@@ -390,11 +390,11 @@ def gen_getting_started(data):
 
 
 def gen_mindmap(analysis):
-    """Build a collapsible tree from repo-analysis.json. Zero LLM — pure Python."""
+    """Build a D3.js radial mind map from repo-analysis.json. Zero LLM — pure Python."""
     if not analysis:
         return ''
     meta = analysis.get('meta') or {}
-    project_name = e(meta.get('name', 'Project'))
+    project_name = meta.get('name', 'Project')
     entry_points = analysis.get('entry_points') or []
     clusters = analysis.get('clusters') or []
     critical_modules = analysis.get('critical_modules') or []
@@ -404,101 +404,178 @@ def gen_mindmap(analysis):
 
     module_paths = {m.get('path', '') for m in critical_modules}
 
-    def _slug(path):
-        return path.replace('/', '-').replace('.', '-').lower()
+    def slug(path):
+        return path.replace('/', '-').replace('.', '-').replace('\\', '-').lower()
 
-    def _leaf(path, anchor=None):
-        name = path.split('/')[-1] or path
-        if anchor:
-            return f'<li><a href="#{html.escape(anchor)}" class="tm-leaf">{e(name)}</a></li>'
-        return f'<li><span class="tm-leaf">{e(name)}</span></li>'
+    # Build JSON tree for D3
+    children = []
 
-    def _branch(label, items_html, expanded=False):
-        disp = '' if expanded else 'display:none'
-        arrow = '▼' if expanded else '▶'
-        state = 'open' if expanded else 'closed'
-        return (f'<li class="tm-branch" data-state="{state}">'
-                f'<span class="tm-node" onclick="tmToggle(this)">'
-                f'<span class="tm-arrow">{arrow}</span>'
-                f'<span class="tm-label">{e(label)}</span>'
-                f'</span>'
-                f'<ul class="tm-children" style="{disp}">{items_html}</ul>'
-                f'</li>')
-
-    sections = []
-
-    # 1. Entry Points (expanded by default)
+    # 1. Entry Points
     if entry_points:
-        items = ''.join(_leaf(ep.get('file', ''), 'entry-points') for ep in entry_points[:12])
-        sections.append(_branch('Entry Points', items, expanded=True))
+        ep_kids = [
+            {'name': ep.get('file', '').replace('\\', '/').split('/')[-1] or ep.get('file', ''),
+             'type': 'leaf', 'href': '#entry-points'}
+            for ep in entry_points[:10] if ep.get('file')
+        ]
+        if ep_kids:
+            children.append({'name': 'Entry Points', 'type': 'category',
+                             'count': len(ep_kids), 'children': ep_kids})
 
     # 2. Module clusters
-    if clusters:
-        for cluster in clusters[:20]:
-            name = cluster.get('name', 'Modules')
-            files = cluster.get('files') or []
-            items = ''
-            for f in files[:20]:
-                anchor = 'module-' + _slug(f) if f in module_paths else None
-                items += _leaf(f, anchor)
-            if items:
-                sections.append(_branch(name, items))
-    elif critical_modules:
-        # Fallback: flat module list when no clusters
-        items = ''.join(_leaf(m.get('path', ''), 'module-' + _slug(m.get('path', '')))
-                        for m in critical_modules[:30])
-        sections.append(_branch('Modules', items))
+    for cluster in clusters[:12]:
+        cname = cluster.get('name', 'Modules')
+        files = cluster.get('files') or []
+        c_kids = []
+        for f in files[:15]:
+            fname = f.replace('\\', '/').split('/')[-1] or f
+            href = '#module-' + slug(f) if f in module_paths else '#modules'
+            c_kids.append({'name': fname, 'type': 'module', 'href': href})
+        if c_kids:
+            children.append({'name': cname, 'type': 'cluster',
+                             'count': len(files), 'children': c_kids})
+
+    # Fallback: no clusters
+    if not clusters and critical_modules:
+        mod_kids = [
+            {'name': m.get('path', '').replace('\\', '/').split('/')[-1] or m.get('path', ''),
+             'type': 'module', 'href': '#module-' + slug(m.get('path', ''))}
+            for m in critical_modules[:20]
+        ]
+        if mod_kids:
+            children.append({'name': 'Modules', 'type': 'category',
+                             'count': len(mod_kids), 'children': mod_kids})
 
     # 3. Tech Stack
-    stack_items = ''
-    for label in filter(None, [stack.get('framework'), stack.get('primary_language'),
-                                stack.get('database'), stack.get('test_framework'),
-                                stack.get('package_manager')]):
-        stack_items += f'<li><a href="#tech-stack" class="tm-leaf">{e(label)}</a></li>'
-    for dep in external_deps[:8]:
-        stack_items += f'<li><a href="#tech-stack" class="tm-leaf">{e(dep.get("name",""))}</a></li>'
-    if stack_items:
-        sections.append(_branch('Tech Stack', stack_items))
+    stack_kids = []
+    for k in ('framework', 'primary_language', 'runtime', 'database',
+               'test_framework', 'package_manager', 'build_tool'):
+        v = stack.get(k)
+        if v:
+            stack_kids.append({'name': v, 'type': 'leaf', 'href': '#tech-stack'})
+    for dep in external_deps[:6]:
+        n = dep.get('name', '')
+        if n:
+            stack_kids.append({'name': n, 'type': 'leaf', 'href': '#tech-stack'})
+    if stack_kids:
+        children.append({'name': 'Tech Stack', 'type': 'category',
+                         'count': len(stack_kids), 'children': stack_kids})
 
-    # 4. Directory structure
+    # 4. Directories
     if top_dirs:
-        dir_items = ''.join(
-            f'<li><a href="#directory-guide" class="tm-leaf">{e(d)}</a></li>'
-            for d in top_dirs[:20]
-        )
-        sections.append(_branch('Directories', dir_items))
+        dir_kids = [
+            {'name': d, 'type': 'leaf', 'href': '#directory-guide'}
+            for d in top_dirs[:15]
+        ]
+        children.append({'name': 'Directories', 'type': 'category',
+                         'count': len(top_dirs), 'children': dir_kids})
 
-    if not sections:
+    if not children:
         return ''
 
+    tree_data = {'name': project_name, 'type': 'root', 'children': children}
+    tree_json = json.dumps(tree_data)
     total = meta.get('total_files', 0)
-    subtitle = f'{total:,} total files · click branches to expand' if total else 'click branches to expand'
-    tree_html = ''.join(sections)
+    stats_str = f'{total:,} files · ' if total else ''
+    fallback_items = ''.join(
+        f'<li>{e(c["name"])} ({c.get("count", len(c.get("children", [])))} items)</li>'
+        for c in children
+    )
 
     return f'''<section class="section" id="codebase-map">
   <p class="section-label">Codebase Map</p>
-  <h2 class="section-title">Full codebase at a glance</h2>
-  <p style="color:var(--text-secondary);margin-bottom:1rem;font-size:0.875rem">{e(subtitle)}</p>
-  <div style="margin-bottom:1rem;display:flex;gap:0.5rem">
-    <button class="toggle-btn" onclick="tmExpandAll()">Expand All</button>
-    <button class="toggle-btn" onclick="tmCollapseAll()">Collapse All</button>
+  <h2 class="section-title">Codebase at a glance</h2>
+  <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem">{e(stats_str)}click nodes to expand · scroll to zoom · drag to pan</p>
+  <div id="mm-wrap" style="position:relative;width:100%;height:580px;border-radius:12px;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border)">
+    <svg id="mm-svg" style="width:100%;height:100%"></svg>
+    <div id="mm-fallback" style="display:none;padding:1.5rem">
+      <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.75rem">Structure overview:</p>
+      <ul style="font-size:0.875rem;color:var(--text-secondary)">{fallback_items}</ul>
+    </div>
+    <div style="position:absolute;bottom:0.75rem;right:0.75rem;display:flex;gap:0.4rem">
+      <button onclick="mmReset()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Reset</button>
+      <button onclick="mmExpand()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Expand All</button>
+      <button onclick="mmCollapse()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Collapse</button>
+    </div>
   </div>
-  <style>
-    .tm-branch{{list-style:none;margin:0;padding:0}}
-    .tm-node{{display:flex;align-items:center;gap:0.4rem;cursor:pointer;padding:0.25rem 0.4rem;border-radius:4px;user-select:none;font-size:0.875rem}}
-    .tm-node:hover{{background:var(--bg-tertiary,rgba(0,0,0,0.05))}}
-    .tm-arrow{{font-size:0.6rem;width:1rem;text-align:center;color:var(--text-secondary);flex-shrink:0}}
-    .tm-label{{color:var(--text-primary);font-weight:500}}
-    .tm-children{{list-style:none;margin:0;padding:0 0 0 1.5rem;border-left:1px solid var(--border,rgba(0,0,0,0.1))}}
-    .tm-leaf{{display:block;font-size:0.8125rem;color:var(--text-secondary);padding:0.15rem 0.4rem;text-decoration:none;border-radius:3px}}
-    .tm-leaf:hover{{color:var(--accent,oklch(54% 0.22 262));background:var(--bg-surface,rgba(0,0,0,0.03))}}
-    a.tm-leaf{{color:var(--accent,oklch(54% 0.22 262));cursor:pointer}}
-  </style>
-  <ul class="tm-branch" id="codebase-tree" style="padding:0">{tree_html}</ul>
   <script>
-    function tmToggle(el){{var li=el.parentElement,ch=li.querySelector('.tm-children'),ar=el.querySelector('.tm-arrow'),open=li.dataset.state==='closed';li.dataset.state=open?'open':'closed';ch.style.display=open?'':'none';ar.textContent=open?'▼':'▶';}}
-    function tmExpandAll(){{document.querySelectorAll('#codebase-tree .tm-branch').forEach(function(li){{li.dataset.state='open';var ch=li.querySelector('.tm-children');if(ch)ch.style.display='';var ar=li.querySelector('.tm-arrow');if(ar)ar.textContent='▼';}});}}
-    function tmCollapseAll(){{document.querySelectorAll('#codebase-tree .tm-branch').forEach(function(li){{if(li.parentElement.id!=='codebase-tree'){{li.dataset.state='closed';var ch=li.querySelector('.tm-children');if(ch)ch.style.display='none';var ar=li.querySelector('.tm-arrow');if(ar)ar.textContent='▶';}}}});}}
+(function(){{
+var TREE={tree_json};
+var W=900,H=900,R=310;
+var BC=['oklch(58% 0.20 262)','oklch(62% 0.19 145)','oklch(64% 0.19 30)','oklch(60% 0.18 320)','oklch(55% 0.17 200)','oklch(63% 0.16 60)','oklch(60% 0.20 290)','oklch(62% 0.19 170)','oklch(64% 0.18 10)','oklch(61% 0.17 240)','oklch(63% 0.16 100)','oklch(62% 0.20 350)'];
+function trav(d,fn){{fn(d);var ch=d.children||d._ch||[];ch.forEach(function(c){{trav(c,fn);}});}}
+function init(){{
+  if(typeof d3==='undefined'){{document.getElementById('mm-fallback').style.display='block';document.getElementById('mm-svg').style.display='none';return;}}
+  var svg=d3.select('#mm-svg').attr('viewBox',[-W/2,-H/2,W,H]);
+  var zb=d3.zoom().scaleExtent([0.2,4]).on('zoom',function(ev){{g.attr('transform',ev.transform);}});
+  svg.call(zb);
+  var g=svg.append('g');
+  var gL=g.append('g').attr('fill','none').attr('stroke-opacity',0.45).attr('stroke-width',1.5);
+  var gN=g.append('g').attr('cursor','pointer');
+  var tl=d3.tree().size([2*Math.PI,R]).separation(function(a,b){{return(a.parent===b.parent?1:2)/a.depth;}});
+  var root=d3.hierarchy(TREE);
+  var uid=0;
+  root.each(function(d){{d.id=uid++;d._ch=d.children?d.children.slice():null;if(d.depth>0)d.children=null;}});
+  if(root._ch){{root.children=root._ch;root._ch=null;}}
+  trav(root,function(d){{if(d.depth===1){{var sib=root.children||root._ch||[];d._bi=sib.indexOf(d);}}else if(d.depth>1){{d._bi=d.parent._bi;}}}});
+  function col(d){{return d.depth===0?'oklch(54% 0.22 262)':BC[((d._bi||0)%BC.length+BC.length)%BC.length];}}
+  function pt(x,y){{var a=x-Math.PI/2;return[y*Math.cos(a),y*Math.sin(a)];}}
+  root.x0=0;root.y0=0;
+  function upd(src){{
+    tl(root);
+    var dur=450,nodes=root.descendants().reverse(),links=root.links();
+    var lk=gL.selectAll('path.mml').data(links,function(d){{return d.target.id;}});
+    var le=lk.enter().append('path').attr('class','mml').attr('d',function(){{var p=pt(src.x0||0,src.y0||0);return'M'+p+'L'+p;}});
+    lk.merge(le).transition().duration(dur).ease(d3.easeCubicInOut)
+      .attr('stroke',function(d){{return col(d.target);}})
+      .attr('d',function(d){{return d3.linkRadial().angle(function(n){{return n.x;}}).radius(function(n){{return n.y;}})(d);}});
+    lk.exit().transition().duration(dur).attr('d',function(){{var p=pt(src.x||0,src.y||0);return'M'+p+'L'+p;}}).remove();
+    var nd=gN.selectAll('g.mmn').data(nodes,function(d){{return d.id;}});
+    var ne=nd.enter().append('g').attr('class','mmn')
+      .attr('transform',function(){{var p=pt(src.x0||0,src.y0||0);return'translate('+p+')';}} )
+      .attr('opacity',0)
+      .on('click',function(ev,d){{
+        ev.stopPropagation();
+        if(d._ch){{d.children=d.children?null:d._ch;upd(d);}}
+        else if(d.data.href){{var el=document.querySelector(d.data.href);if(el)el.scrollIntoView({{behavior:'smooth',block:'start'}});}}
+      }});
+    ne.append('circle');
+    ne.append('text').attr('class','mmt');
+    var nm=nd.merge(ne);
+    nm.transition().duration(dur).ease(d3.easeCubicInOut)
+      .attr('transform',function(d){{var p=pt(d.x,d.y);return'translate('+p+')';}} )
+      .attr('opacity',1);
+    nm.select('circle').transition().duration(dur)
+      .attr('r',function(d){{return d.depth===0?12:d._ch?6:3.5;}})
+      .attr('fill',function(d){{return(d.children||d.depth===0)?col(d):d._ch?col(d):'var(--bg-surface)';}})
+      .attr('stroke',function(d){{return col(d);}}).attr('stroke-width',2);
+    nm.select('text.mmt')
+      .attr('dy','0.31em')
+      .attr('x',function(d){{if(d.depth===0)return 0;return(d.x<Math.PI)?11:-11;}})
+      .attr('text-anchor',function(d){{if(d.depth===0)return'middle';return(d.x<Math.PI)?'start':'end';}})
+      .attr('transform',function(d){{if(d.depth===0)return null;return(d.x>=Math.PI)?'rotate(180)':null;}})
+      .attr('font-size',function(d){{return d.depth===0?'13px':d.depth===1?'11px':'9.5px';}})
+      .attr('font-weight',function(d){{return d.depth<=1?'600':'400';}})
+      .attr('fill','var(--text-primary)')
+      .text(function(d){{var n=d.data.name||'';return n.length>30?n.slice(0,28)+'\u2026':n;}});
+    nd.exit().transition().duration(dur)
+      .attr('transform',function(){{var p=pt(src.x||0,src.y||0);return'translate('+p+')';}} ).attr('opacity',0).remove();
+    root.each(function(d){{d.x0=d.x;d.y0=d.y;}});
+  }}
+  upd(root);
+  window.mmReset=function(){{svg.transition().duration(400).call(zb.transform,d3.zoomIdentity);}};
+  window.mmExpand=function(){{trav(root,function(d){{if(d._ch)d.children=d._ch;}});upd(root);}};
+  window.mmCollapse=function(){{trav(root,function(d){{if(d.depth>0&&d._ch)d.children=null;}});if(root._ch){{root.children=root._ch;root._ch=null;}}upd(root);}};
+  new MutationObserver(function(){{
+    gN.selectAll('text.mmt').attr('fill','var(--text-primary)');
+  }}).observe(document.documentElement,{{attributes:true,attributeFilter:['data-theme']}});
+}}
+if(typeof d3!=='undefined'){{init();}}
+else{{
+  var ds=document.querySelector('script[src*="d3"]');
+  if(ds){{ds.addEventListener('load',init);}}
+  setTimeout(function(){{if(typeof d3==='undefined'){{document.getElementById('mm-fallback').style.display='block';document.getElementById('mm-svg').style.display='none';}}}},5000);
+}}
+}})();
   </script>
 </section>'''
 

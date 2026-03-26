@@ -2,29 +2,53 @@
 
 ## Pipeline: Running the Scripts
 
-Run all scripts from the `repo-tour/scripts/` directory. Use a temp directory for intermediates:
+Run all scripts from the `scripts/` directory (inside the skill folder). Use `{REPO}/.repotour/` for all intermediate files — avoids the Windows /tmp path split where bash `/tmp` and Python `/tmp` resolve to different directories.
 
 ```bash
 REPO=/path/to/target-repo
-TMP=/tmp/rt_$$
+WORK=$REPO/.repotour
+mkdir -p $WORK
 
-python scan_repo.py $REPO > $TMP_scan.json
-python detect_stack.py $REPO > $TMP_stack.json
-python find_entry_points.py $REPO $TMP_stack.json > $TMP_entries.json
+python scan_repo.py $REPO > $WORK/rt_scan.json
+python detect_stack.py $REPO > $WORK/rt_stack.json
+python find_entry_points.py $REPO $WORK/rt_stack.json > $WORK/rt_entries.json
 python map_dependencies.py $REPO \
-  --language $(python -c "import json; print(json.load(open('$TMP_stack.json'))['stack']['primary_language'])") \
-  --max-modules 15 > $TMP_deps.json
+  --language $(python -c "import json; print(json.load(open('$WORK/rt_stack.json'))['stack']['primary_language'])") \
+  --max-modules 15 \
+  --output-feature-index $WORK/feature-index.json > $WORK/rt_deps.json
 
 python merge_analysis.py \
-  --scan $TMP_scan.json \
-  --stack $TMP_stack.json \
-  --entries $TMP_entries.json \
-  --deps $TMP_deps.json \
+  --scan $WORK/rt_scan.json \
+  --stack $WORK/rt_stack.json \
+  --entries $WORK/rt_entries.json \
+  --deps $WORK/rt_deps.json \
   --budget 3500 \
-  --output repo-analysis.json
+  --output $WORK/repo-analysis.json
 ```
 
-Check `_meta.within_budget` in `repo-analysis.json`. If `false`, reduce `--max-modules`.
+Check `_meta.within_budget` in `$WORK/repo-analysis.json`. If `false`, reduce `--max-modules`.
+
+**Scope calibration**: Use `meta.source_files` (source-language files only, after exclusions) — NOT `meta.total_files`. On .NET or Java repos with `bin/` or `target/` present, `total_files` can be 10x the actual source file count.
+
+## Empty Scan Recovery
+
+If `critical_modules: []` or `clusters: []` after the pipeline:
+
+1. **Likely cause**: Build artifacts still present (check: is `meta.source_files` << `meta.total_files`?).
+   Add `--exclude` if needed: `python scan_repo.py $REPO --exclude "Generated,Migrations"`
+
+2. **Fallback module seeds**: Find project manifests and use them as module seeds:
+   - .NET: `*.csproj`, `*.sln`, `Program.cs`, `Startup.cs`
+   - Java/Spring: `pom.xml`, `build.gradle`, `*Application.java`
+   - Angular: `*.module.ts`, `app.component.ts`
+   - Go: `go.mod`, `main.go`, `cmd/*/main.go`
+   - Python: `pyproject.toml`, `setup.py`, `wsgi.py`, `asgi.py`
+
+3. **Fallback clusters**: Use top-level directories as cluster names instead of import graph.
+
+If `readme_excerpt` contains "TODO" or is under 50 characters:
+- Run `git log --oneline -10` and use commit messages as the project narrative
+- Derive purpose from directory structure (e.g. `Controllers/`, `Services/`, `Models/` → MVC web API)
 
 ## Token Budget Enforcement
 

@@ -7,10 +7,23 @@ import json
 import subprocess
 from pathlib import Path
 
+# Default dirs to always skip — includes compiled-language output folders (bin/, obj/)
+# that would otherwise inflate file counts 10x on .NET and Java repos.
 SKIP_DIRS = {
     'node_modules', '.git', 'vendor', 'dist', 'build', '__pycache__',
     '.next', 'target', '.venv', 'venv', '.tox', 'coverage',
-    '.nyc_output', '.cache', '.idea', '.vscode'
+    '.nyc_output', '.cache', '.idea', '.vscode',
+    'bin', 'obj', 'out', 'artifacts', '.gradle', 'gradle',
+    'packages',  # NuGet packages restore dir
+}
+
+# Extensions that count as source files (for calibration, not total_files)
+SOURCE_EXTS = {
+    'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
+    'py', 'go', 'rs', 'cs', 'java', 'kt', 'swift',
+    'rb', 'php', 'scala', 'clj', 'ex', 'exs',
+    'cpp', 'c', 'h', 'hpp', 'cc',
+    'dart', 'elm', 'ml', 'fs', 'fsx',
 }
 
 FILE_SMALL = 500
@@ -22,8 +35,9 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def is_skipped_dir(name: str) -> bool:
-    return name in SKIP_DIRS or name.startswith('.')
+def is_skipped_dir(name: str, skip_set: set = None) -> bool:
+    s = skip_set if skip_set is not None else SKIP_DIRS
+    return name in s or name.startswith('.')
 
 
 def count_lines(path: str) -> int:
@@ -42,11 +56,21 @@ def max_line_length(path: str) -> int:
         return 0
 
 
-def scan_repo(repo_path: str) -> dict:
+def scan_repo(repo_path: str, extra_exclude: set = None) -> dict:
+    """Scan a repository and return structured analysis data.
+
+    Args:
+        repo_path: Path to the repository root.
+        extra_exclude: Additional directory names to skip (e.g. {'migrations', 'generated'}).
+                       Combined with the default SKIP_DIRS set.
+    """
     root = Path(repo_path).resolve()
     name = root.name
 
+    skip_set = SKIP_DIRS | (extra_exclude or set())
+
     total_files = 0
+    source_files = 0   # source-language files only (for scope calibration)
     total_loc = 0
     file_counts_by_ext = {}
     files_by_size = {'small': 0, 'medium': 0, 'large': 0, 'xlarge': 0, 'mega': 0}
@@ -66,7 +90,7 @@ def scan_repo(repo_path: str) -> dict:
     for item in sorted(root.iterdir()):
         if dir_entry_count >= 30:
             break
-        if item.is_dir() and not is_skipped_dir(item.name):
+        if item.is_dir() and not is_skipped_dir(item.name, skip_set):
             top_dirs.append(item.name + '/')
             dir_entry_count += 1
             seen_dirs.add(item.name)
@@ -75,7 +99,7 @@ def scan_repo(repo_path: str) -> dict:
                 for sub in sorted(item.iterdir()):
                     if dir_entry_count >= 30:
                         break
-                    if sub.is_dir() and not is_skipped_dir(sub.name):
+                    if sub.is_dir() and not is_skipped_dir(sub.name, skip_set):
                         top_dirs.append(item.name + '/' + sub.name + '/')
                         dir_entry_count += 1
             except PermissionError:
@@ -83,7 +107,7 @@ def scan_repo(repo_path: str) -> dict:
 
     # Walk repo
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not is_skipped_dir(d)]
+        dirnames[:] = [d for d in dirnames if not is_skipped_dir(d, skip_set)]
         for fname in filenames:
             fpath = os.path.join(dirpath, fname)
             rel = os.path.relpath(fpath, root)
@@ -120,6 +144,8 @@ def scan_repo(repo_path: str) -> dict:
 
             # Count
             total_files += 1
+            if ext in SOURCE_EXTS:
+                source_files += 1
             if ext:
                 file_counts_by_ext[ext] = file_counts_by_ext.get(ext, 0) + 1
 
@@ -178,6 +204,7 @@ def scan_repo(repo_path: str) -> dict:
         'meta': {
             'name': name,
             'total_files': total_files,
+            'source_files': source_files,   # source-language files only; use this for scope calibration
             'total_loc': total_loc
         },
         'top_dirs': top_dirs[:30],
@@ -419,20 +446,24 @@ def _get_git_info(repo_path: str) -> dict:
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: scan_repo.py <repo_path> [--output-generated-surfaces PATH]', file=sys.stderr)
+        print('Usage: scan_repo.py <repo_path> [--exclude DIR1,DIR2,...] [--output-generated-surfaces PATH]', file=sys.stderr)
         sys.exit(1)
 
     generated_surfaces_out = None
+    extra_exclude: set = set()
     args = sys.argv[2:]
     i = 0
     while i < len(args):
         if args[i] == '--output-generated-surfaces' and i + 1 < len(args):
             generated_surfaces_out = args[i + 1]
             i += 2
+        elif args[i] == '--exclude' and i + 1 < len(args):
+            extra_exclude = {d.strip() for d in args[i + 1].split(',')}
+            i += 2
         else:
             i += 1
 
-    output = scan_repo(sys.argv[1])
+    output = scan_repo(sys.argv[1], extra_exclude=extra_exclude)
 
     if generated_surfaces_out:
         surfaces = output.pop('_generated_api_surfaces', [])

@@ -130,7 +130,7 @@ python extract_section.py tech_stack repo-analysis.json
 python extract_section.py entry_points repo-analysis.json
 ```
 
-**Pre-Read**: Yes — dispatch `agents/section-preloader.md` with each entry point file.
+**Pre-Read**: **REQUIRED** — dispatch `agents/section-preloader.md` with each entry point file. Do NOT write this section until the preloader agent returns. If you skip this, set `"unverified": true` in the output JSON.
 
 **Your Task**: Generate `site-content/entry_points.json` as an array:
 ```json
@@ -172,7 +172,7 @@ python extract_section.py modules repo-analysis.json --batch 0 --batch-size 8
 # Increment --batch for each subsequent batch
 ```
 
-**Pre-Read**: Yes — dispatch `agents/section-preloader.md` with the file paths in this batch.
+**Pre-Read**: **REQUIRED** — dispatch `agents/section-preloader.md` with the file paths in this batch. Do NOT write this section until the preloader agent returns. If you skip this, set `"unverified": true` on each module object in the output.
 
 **Your Task**: Generate `site-content/modules_batch_N.json` as an array (one object per module):
 ```json
@@ -227,7 +227,7 @@ python extract_section.py modules repo-analysis.json --batch 0 --batch-size 8
 python extract_section.py workflows repo-analysis.json
 ```
 
-**Pre-Read**: Yes — dispatch `agents/workflow-verifier.md` for each workflow's steps to confirm they exist in source.
+**Pre-Read**: **REQUIRED** — dispatch `agents/workflow-verifier.md` for each workflow's steps to confirm they exist in source. Do NOT finalize workflow steps until verifier confirms the functions exist. If unverifiable, mark the step: `"(unverified)"` in the narrative.
 
 **Your Task**: Generate `site-content/workflows.json`:
 ```json
@@ -284,7 +284,7 @@ python extract_section.py workflows repo-analysis.json
 python extract_section.py cross_cutting repo-analysis.json
 ```
 
-**Pre-Read**: Yes — dispatch agents/section-preloader.md on:
+**Pre-Read**: **REQUIRED** — dispatch agents/section-preloader.md on:
 - Auth middleware files (*.middleware.ts, *.guard.ts, *.interceptor.ts, *auth*, *security*)
 - Error handling files (global error handlers, *error*, *exception*, *problem-details*)
 - Logging setup files (logger init, correlation ID, *logging*, *telemetry*)
@@ -366,7 +366,7 @@ python extract_section.py glossary repo-analysis.json
 python extract_section.py getting_started repo-analysis.json
 ```
 
-**Pre-Read**: Yes — dispatch `agents/section-preloader.md` on CI config, Dockerfile, Makefile, and README for setup commands.
+**Pre-Read**: **REQUIRED** — dispatch `agents/section-preloader.md` on CI config, Dockerfile, Makefile, and README for setup commands. Do NOT write getting_started until the preloader confirms the setup commands. If you skip this, set `"unverified": true`.
 
 **Your Task**: Generate `site-content/glossary_getting_started.json`:
 ```json
@@ -486,6 +486,42 @@ Before writing any recipe step, verify: does the file path you are referencing a
 3. How do I add a new database model?
 4. How do I add input validation?
 5. How do I add a background job?
+
+**ASP.NET Core recipes** (use when `stack.framework` contains "ASP.NET" or `stack.primary_language == "C#"`):
+1. How do I add a new API endpoint?
+2. How do I register a new service in the DI container?
+3. How do I add a new Entity Framework entity and migration?
+4. How do I add middleware to the pipeline?
+5. How do I add a MediatR command/handler?
+6. How do I add input validation (FluentValidation)?
+7. How do I add a background service (IHostedService)?
+8. How do I write an integration test?
+
+**Spring Boot recipes** (use when `stack.framework` contains "Spring"):
+1. How do I add a new REST endpoint?
+2. How do I add a new Spring Bean/Service?
+3. How do I add a JPA entity and repository?
+4. How do I add request validation?
+5. How do I add a Spring Security rule?
+6. How do I write a test with @SpringBootTest?
+7. How do I add a scheduled task?
+
+**Django/FastAPI recipes** (use when `stack.framework` contains "Django" or "FastAPI"):
+1. How do I add a new API endpoint or view?
+2. How do I add a new database model?
+3. How do I add a serializer (Django REST) or schema (FastAPI/Pydantic)?
+4. How do I add URL routing?
+5. How do I add a celery task?
+6. How do I write a test?
+7. How do I add a migration?
+
+**Go recipes** (use when `stack.primary_language == "Go"`):
+1. How do I add a new HTTP handler?
+2. How do I add a new service struct and interface?
+3. How do I add a database query (raw SQL or ORM)?
+4. How do I add middleware to the router?
+5. How do I write a unit test?
+6. How do I add a background goroutine/worker?
 
 **Generic fallback** (for any other framework):
 1. How do I add a new feature?
