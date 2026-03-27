@@ -55,26 +55,47 @@ If it fails: add `# FALLBACK_MODE=true` comment here and do all file reading dir
 
 **TOKEN CHECKPOINT 0**: After smoke-test returns, initialise `$WORK/token-ledger.json` with the full schema above (all zeros). Update `phase_0` with actual smoke-test tokens.
 
+## 0.5 Resume Check
+
+Before running Phase 1, check whether a prior run already exists for this repo. If the codebase hasn't changed since the last run (same git HEAD), Phase 1 and already-generated sections are skipped, saving the bulk of LLM cost.
+
+```bash
+mkdir -p <REPO>/.repotour
+WORK=<REPO>/.repotour
+RESUME=$(python scripts/check_resume.py <REPO> $WORK)
+```
+
+Parse `$RESUME` as JSON and store these values:
+- `mode`: `"fresh"` | `"partial"` | `"resume"`
+- `phase1_skip`: if `true`, skip all Phase 1 scripts AND file reading
+- `graph_skip`: if `true`, skip `build_graph.py`
+- `sections_skip`: Phase 2 sections already generated (skip these)
+- `sections_missing`: Phase 2 sections to generate
+
+**Tell the user the mode before continuing:**
+- `"fresh"` → "No prior run found — running full pipeline."
+- `"partial"` → "Found existing analysis (commit `{git_head_stored[:8]}`). Skipping Phase 1 and {N} sections. Generating: `{sections_missing}`."
+- `"resume"` → "Found existing analysis (commit `{git_head_stored[:8]}`). All sections already generated — regenerating site HTML only."
+
 ## Phase 1: SCAN
 
 Run from the `scripts/` directory (inside the skill folder). Replace `<REPO>` with the absolute path to the target repo.
 
 **Working directory**: Use `{REPO}/.repotour/` for all intermediate files — this keeps everything together and avoids the /tmp path split on Windows.
 
-```bash
-mkdir -p <REPO>/.repotour
-WORK=<REPO>/.repotour
+**Skip this entire section if `phase1_skip == true` (resume/partial mode with matching git HEAD).** Record all `phase_1_*` ledger entries as 0 (skipped, not estimated) and proceed directly to Phase 2.
 
+```bash
 python scan_repo.py <REPO> > $WORK/rt_scan.json
 python detect_stack.py <REPO> > $WORK/rt_stack.json
 python find_entry_points.py <REPO> $WORK/rt_stack.json > $WORK/rt_entries.json
 python map_dependencies.py <REPO> --language <LANG> \
   --output-feature-index $WORK/feature-index.json > $WORK/rt_deps.json
-# Build dependency graph for Code Map (runs separately — graph-data.json does NOT merge into repo-analysis.json)
+# Build dependency graph — skip if graph_skip == true
 python scripts/build_graph.py <REPO> --language <LANG> --max-nodes 200 --output $WORK/graph-data.json
 python merge_analysis.py --scan $WORK/rt_scan.json --stack $WORK/rt_stack.json \
   --entries $WORK/rt_entries.json --deps $WORK/rt_deps.json \
-  --budget 3500 --output $WORK/repo-analysis.json
+  --repo <REPO> --budget 3500 --output $WORK/repo-analysis.json
 ```
 
 **For compiled-language repos (.NET, Java, Go, C++)**: Build artifacts inflate file counts. Add `--exclude` to filter them:
@@ -119,6 +140,7 @@ See `references/ANALYSIS_GUIDE.md` for full methodology and workflow identificat
 ## Phase 2: EXPLAIN
 
 Loop through sections. For each section:
+0. **Skip if the section is in `sections_skip` (from the resume check).** The existing `site-content/<section>.json` is valid — the codebase hasn't changed. Record 0 tokens for skipped sections in the ledger.
 1. Run `extract_section.py <section> $WORK/repo-analysis.json` for data slice
 2. For sections marked **REQUIRED pre-read**: dispatch `agents/section-preloader.md` FIRST. Do NOT write the section until the preloader returns. If you skip the preloader, set `"unverified": true` in the output JSON so the site can flag it visually.
 3. Read the ONE relevant section from `references/SECTION_PROMPTS.md`

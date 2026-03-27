@@ -4,6 +4,7 @@
 import sys
 import json
 import argparse
+import subprocess
 from pathlib import Path
 
 
@@ -99,6 +100,7 @@ def main():
     parser.add_argument('--deps', help='Path to map_dependencies.py output JSON')
     parser.add_argument('--budget', type=int, default=3500, help='Max token budget for output')
     parser.add_argument('--output', help='Output file path (default: stdout)')
+    parser.add_argument('--repo', help='Path to repository root (used to record git HEAD for resume detection)')
     args = parser.parse_args()
 
     scan = load_json(args.scan, 'scan')
@@ -107,6 +109,18 @@ def main():
     deps = load_json(args.deps, 'deps')
 
     result = merge(scan, stack, entries, deps, args.budget)
+
+    # Store git HEAD so check_resume.py can detect whether the repo has changed
+    if args.repo:
+        try:
+            proc = subprocess.run(
+                ['git', '-C', args.repo, 'rev-parse', 'HEAD'],
+                capture_output=True, text=True, timeout=10
+            )
+            if proc.returncode == 0:
+                result['_meta']['git_head'] = proc.stdout.strip()
+        except Exception:
+            pass
 
     output_str = json.dumps(result, indent=2)
     if args.output:
