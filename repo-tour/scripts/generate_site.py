@@ -483,16 +483,16 @@ def gen_mindmap(analysis):
   <p class="section-label">Codebase Map</p>
   <h2 class="section-title">Directory structure</h2>
   <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem">{e(stats + stats_suffix)}click folders to expand · scroll to zoom · drag to pan</p>
-  <div id="mm-wrap" style="position:relative;width:100%;height:600px;border-radius:12px;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border)">
+  <div id="mm-wrap" style="position:relative;width:100%;height:600px;border-radius:12px;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border-subtle)">
     <svg id="mm-svg" style="width:100%;height:100%"></svg>
     <div id="mm-fallback" style="display:none;padding:1.5rem">
       <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.5rem">Top-level directories:</p>
       <ul style="font-size:0.875rem;color:var(--text-secondary)">{fallback_items}</ul>
     </div>
     <div style="position:absolute;bottom:0.75rem;right:0.75rem;display:flex;gap:0.4rem">
-      <button onclick="mmReset()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Reset</button>
-      <button onclick="mmExpand()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Expand All</button>
-      <button onclick="mmCollapse()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Collapse</button>
+      <button onclick="mmReset()" style="background:var(--bg-page);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Reset</button>
+      <button onclick="mmExpand()" style="background:var(--bg-page);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Expand All</button>
+      <button onclick="mmCollapse()" style="background:var(--bg-page);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Collapse</button>
     </div>
   </div>
   <script>
@@ -774,26 +774,36 @@ def gen_code_map(graph_data, modules_content):
     roles_json     = json.dumps(roles)
 
     inline_js = f"""
-(function(){{
-  if(window.D3_FAILED||typeof d3==='undefined'){{
-    // Fallback: static table
-    var ns=GRAPH_DATA.nodes.slice().sort(function(a,b){{return b.connectivity-a.connectivity;}});
-    var rows=ns.slice(0,30).map(function(n){{
-      return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">'+n.fullPath+'</td>'
-        +'<td style="padding:4px 8px;border-bottom:1px solid var(--border)">'+n.role+'</td>'
-        +'<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right">'+n.connectivity+'</td></tr>';
-    }}).join('');
-    document.getElementById('code-map-fallback').innerHTML=
-      '<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
-      +'<thead><tr>'
-      +'<th style="padding:6px 8px;border-bottom:2px solid var(--border);text-align:left">File</th>'
-      +'<th style="padding:6px 8px;border-bottom:2px solid var(--border);text-align:left">Role</th>'
-      +'<th style="padding:6px 8px;border-bottom:2px solid var(--border);text-align:right">Connections</th>'
-      +'</tr></thead><tbody>'+rows+'</tbody></table>';
-    document.getElementById('cm-wrap').style.display='none';
-    document.getElementById('code-map-fallback').style.display='block';
+function cmShowFallback(){{
+  var ns=GRAPH_DATA.nodes.slice().sort(function(a,b){{return b.connectivity-a.connectivity;}});
+  var rows=ns.slice(0,30).map(function(n){{
+    return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border-subtle)">'+n.fullPath+'</td>'
+      +'<td style="padding:4px 8px;border-bottom:1px solid var(--border-subtle)">'+n.role+'</td>'
+      +'<td style="padding:4px 8px;border-bottom:1px solid var(--border-subtle);text-align:right">'+n.connectivity+'</td></tr>';
+  }}).join('');
+  document.getElementById('code-map-fallback').innerHTML=
+    '<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
+    +'<thead><tr>'
+    +'<th style="padding:6px 8px;border-bottom:2px solid var(--border-subtle);text-align:left">File</th>'
+    +'<th style="padding:6px 8px;border-bottom:2px solid var(--border-subtle);text-align:left">Role</th>'
+    +'<th style="padding:6px 8px;border-bottom:2px solid var(--border-subtle);text-align:right">Connections</th>'
+    +'</tr></thead><tbody>'+rows+'</tbody></table>';
+  document.getElementById('cm-wrap').style.display='none';
+  document.getElementById('code-map-fallback').style.display='block';
+}}
+var _cmInitDone=false;
+function cmInit(){{
+  if(_cmInitDone)return;
+  if(window.D3_FAILED){{cmShowFallback();return;}}
+  if(typeof d3==='undefined'){{
+    // D3 not yet loaded — wait for it (CDN script is at end of body)
+    var ds=document.querySelector('script[src*="d3"]');
+    if(ds){{ds.addEventListener('load',cmInit);}}
+    setTimeout(function(){{if(typeof d3==='undefined'){{cmShowFallback();}}  }},6000);
     return;
   }}
+  _cmInitDone=true;
+(function(){{
 
   var ROLE_COLORS={role_colors_json};
   function roleColor(role){{
@@ -1129,6 +1139,8 @@ def gen_code_map(graph_data, modules_content):
   }});
 
 }})();
+}}
+cmInit();
 """
 
     # Legend items HTML
@@ -1148,7 +1160,7 @@ def gen_code_map(graph_data, modules_content):
   <!-- Controls bar -->
   <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
     <input id="cm-search" type="search" placeholder="Search files..." aria-label="Search code map nodes"
-      style="flex:1;min-width:140px;max-width:220px;padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.82rem;background:var(--surface);color:var(--text-primary)">
+      style="flex:1;min-width:140px;max-width:220px;padding:0.3rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;font-size:0.82rem;background:var(--bg-surface);color:var(--text-primary)">
     <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center">{chip_items}</div>
     <div style="margin-left:auto;display:flex;gap:0.4rem">
       <button id="cm-reheat" class="cm-ctrl-btn" title="Reheat simulation">Reheat</button>
@@ -1179,11 +1191,11 @@ def gen_code_map(graph_data, modules_content):
 
   <style>
     .cm-chip{{padding:0.2rem 0.55rem;border:1.5px solid oklch(58% 0.18 calc(var(--chip-hue)*1deg));border-radius:999px;font-size:0.75rem;background:transparent;color:var(--text-primary);cursor:pointer;transition:opacity 0.15s}}
-    .cm-ctrl-btn{{padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.78rem;background:var(--surface);color:var(--text-primary);cursor:pointer}}
-    .cm-ctrl-btn:hover{{background:var(--surface-hover,var(--surface));border-color:var(--accent)}}
+    .cm-ctrl-btn{{padding:0.25rem 0.6rem;border:1px solid var(--border-subtle);border-radius:6px;font-size:0.78rem;background:var(--bg-surface);color:var(--text-primary);cursor:pointer}}
+    .cm-ctrl-btn:hover{{background:var(--bg-page);border-color:var(--accent)}}
     .cm-legend-item{{display:inline-flex;align-items:center;gap:0.3rem}}
     .cm-legend-dot{{width:10px;height:10px;border-radius:50%;flex-shrink:0}}
-    .cm-stat::after{{content:" |";margin-left:0.4rem;color:var(--border)}}
+    .cm-stat::after{{content:" |";margin-left:0.4rem;color:var(--border-subtle)}}
     .cm-stat:last-child::after{{content:""}}
     #cm-wrap.cm-fullscreen-mode{{position:fixed;inset:0;z-index:9999;border-radius:0;height:100vh!important;width:100vw!important}}
     #cm-wrap.cm-fullscreen-mode #cm-svg{{height:100vh!important}}

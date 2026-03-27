@@ -1,6 +1,6 @@
 {
   "name": "tldr-skill",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "TLDR – Turn any repo into an interactive codebase tour. A Claude Code skill. Too Long, Didn't Read? Now you don't have to.",
   "bin": {
     "tldr-skill": "./bin/install.js"
