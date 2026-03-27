@@ -1,0 +1,18 @@
+{
+  "name": "tldr",
+  "version": "1.4.0",
+  "description": "Turn any repo into an interactive codebase explainer website. Generates an index.html with architecture diagrams, module explanations, dependency graph, workflow traces, and a developer cookbook. Works on any language or framework.",
+  "triggers": [
+    "/tldr",
+    "explain this repo",
+    "generate docs",
+    "onboard me",
+    "how does this codebase work",
+    "create a codebase tour",
+    "help me understand this code"
+  ],
+  "entrypoint": "SKILL.md",
+  "author": "upayan <upayan1231@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/upayan/tldr-skill"
+}

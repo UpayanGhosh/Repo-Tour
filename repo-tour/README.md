@@ -160,21 +160,7 @@ Codex uses a different plugin manifest. The Python scripts work perfectly — on
 git clone https://github.com/upayan/tldr-skill
 ```
 
-#### Step 2 — Create plugin manifest
-
-Create `tldr-skill/repo-tour/.codex-plugin/plugin.json`:
-
-```json
-{
-  "name": "tldr",
-  "version": "1.4.0",
-  "description": "Turn any repo into an interactive codebase explainer. Say 'explain this repo' or /tldr to trigger.",
-  "triggers": ["/tldr", "explain this repo", "generate docs", "onboard me"],
-  "entrypoint": "SKILL.md"
-}
-```
-
-#### Step 3 — Install
+#### Step 2 — Install
 
 **macOS / Linux:**
 ```bash

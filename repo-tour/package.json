@@ -12,6 +12,7 @@
     "references/",
     "scripts/",
     "templates/",
+    ".codex-plugin/",
     "LICENSE.txt"
   ],
   "engines": {
