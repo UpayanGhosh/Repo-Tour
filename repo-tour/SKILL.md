@@ -34,6 +34,8 @@ python detect_stack.py <REPO> > $WORK/rt_stack.json
 python find_entry_points.py <REPO> $WORK/rt_stack.json > $WORK/rt_entries.json
 python map_dependencies.py <REPO> --language <LANG> \
   --output-feature-index $WORK/feature-index.json > $WORK/rt_deps.json
+# Build dependency graph for Code Map (runs separately — graph-data.json does NOT merge into repo-analysis.json)
+python scripts/build_graph.py <REPO> --language <LANG> --max-nodes 200 --output $WORK/graph-data.json
 python merge_analysis.py --scan $WORK/rt_scan.json --stack $WORK/rt_stack.json \
   --entries $WORK/rt_entries.json --deps $WORK/rt_deps.json \
   --budget 3500 --output $WORK/repo-analysis.json
@@ -102,7 +104,8 @@ python scripts/generate_site.py \
   --analysis $WORK/repo-analysis.json \
   --content-dir $WORK/site-content/ \
   --templates templates/ \
-  --output $WORK/site/
+  --output $WORK/site/ \
+  --graph $WORK/graph-data.json
 ```
 
 Zero LLM involvement. Pure Python HTML assembly. Unlimited output size.

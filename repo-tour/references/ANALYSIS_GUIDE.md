@@ -17,6 +17,9 @@ python map_dependencies.py $REPO \
   --max-modules 15 \
   --output-feature-index $WORK/feature-index.json > $WORK/rt_deps.json
 
+# Produces graph-data.json for the Code Map website section. NOT merged into repo-analysis.json — consumed directly by generate_site.py.
+python build_graph.py $REPO --language <LANG> --max-nodes 200 --output $WORK/graph-data.json
+
 python merge_analysis.py \
   --scan $WORK/rt_scan.json \
   --stack $WORK/rt_stack.json \
