@@ -350,19 +350,13 @@ D3.js CDN failed to load. Check network connectivity. The fallback shows the top
 
 ## Contributing
 
-This skill is developed in the open. The source of truth is:
+Pull requests and issues welcome. After cloning and making changes, sync to the installed skill:
 
-```
-Desktop/Skill/repo-tour/   ← development repo
-~/.claude/skills/tldr/     ← installed skill (synced manually)
-```
-
-After any change, sync to the installed skill:
 ```bash
-cp -r repo-tour/scripts ~/.claude/skills/tldr/
-cp -r repo-tour/templates ~/.claude/skills/tldr/
-cp -r repo-tour/references ~/.claude/skills/tldr/
-cp repo-tour/SKILL.md ~/.claude/skills/tldr/
+cp -r scripts ~/.claude/skills/tldr/
+cp -r templates ~/.claude/skills/tldr/
+cp -r references ~/.claude/skills/tldr/
+cp SKILL.md ~/.claude/skills/tldr/
 ```
 
 ---
