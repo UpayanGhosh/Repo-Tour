@@ -174,15 +174,14 @@ def gen_architecture(data):
 
     mermaid_html = ''
     if data.get('mermaid'):
-        mermaid_html = f'<div class="mermaid-wrap"><div class="mermaid" data-clickable="true" data-diagram="{e(data["mermaid"])}"></div></div>'
+        mermaid_html = f'<div class="mermaid-wrap mermaid-hero"><div class="mermaid" data-clickable="true" data-diagram="{e(data["mermaid"])}"></div></div>'
 
     return f'''<section class="section" id="architecture">
   <p class="section-label">Architecture</p>
   <h2 class="section-title">How is it organized?</h2>
   {f'<p style="font-size:1rem;color:var(--text-secondary);margin-bottom:1.5rem;font-style:italic">{e(data.get("analogy",""))}</p>' if data.get("analogy") else ""}
   {mermaid_html}
-  <h3 style="margin-top:1.5rem;margin-bottom:1rem">Layers</h3>
-  {layers_html}
+  {('<h3 style="margin-top:1.5rem;margin-bottom:1rem">Layers</h3>' + layers_html) if layers_html else ""}
 </section>'''
 
 
@@ -284,31 +283,31 @@ def gen_workflows(data):
     workflows = (data.get('workflows') or []) if isinstance(data, dict) else []
     wf_html = ''
     for wf in workflows:
-        steps_html = ''
-        for step in (wf.get('steps') or []):
-            steps_html += f'''<div class="workflow-step">
-      <div class="step-connector"><div class="step-dot"></div><div class="step-line"></div></div>
-      <div class="step-body">
-        <div class="step-file">{e(step.get("file",""))}</div>
-        <div class="step-function">{e(step.get("function",""))}</div>
-        <div class="step-narrative">{e(step.get("narrative",""))}</div>
-      </div>
-    </div>'''
+        # Horizontal call-chain strip
+        flow_strip = ''
+        summary = wf.get('steps_summary') or []
+        if summary:
+            nodes = ''.join(
+                f'<span class="flow-node">{e(s)}</span>'
+                + ('<span class="flow-arrow">&#8594;</span>' if i < len(summary) - 1 else '')
+                for i, s in enumerate(summary)
+            )
+            flow_strip = f'<div class="flow-strip">{nodes}</div>'
 
         mermaid_html = ''
         if wf.get('mermaid'):
-            mermaid_html = f'<div class="mermaid-wrap"><div class="mermaid" data-diagram="{e(wf["mermaid"])}"></div></div>'
+            mermaid_html = f'<div class="mermaid-wrap mermaid-hero"><div class="mermaid" data-diagram="{e(wf["mermaid"])}"></div></div>'
 
         wf_html += f'''<div class="workflow">
     <h3>{e(wf.get("name",""))}</h3>
     <div class="workflow-trigger">{e(wf.get("trigger",""))}</div>
+    {flow_strip}
     {mermaid_html}
-    <div class="workflow-steps">{steps_html}</div>
   </div>'''
 
     return f'''<section class="section" id="workflows">
-  <p class="section-label">Workflows</p>
-  <h2 class="section-title">How does it behave?</h2>
+  <p class="section-label">Request Flows</p>
+  <h2 class="section-title">How does a request travel?</h2>
   {wf_html}
 </section>'''
 

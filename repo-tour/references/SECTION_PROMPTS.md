@@ -64,7 +64,7 @@ python extract_section.py architecture repo-analysis.json
 **Writing Rules**:
 - Max 4-5 layers. Group clusters into meaningful architectural layers
 - The analogy must map directly to the layers: "Just as a restaurant has a dining room, kitchen, and pantry, this app has..."
-- Mermaid diagram: use simple `graph TD` or `graph LR`. Max 12 nodes. Node labels are plain English, not file paths
+- Mermaid diagram: use `graph LR` (left-to-right) to show the request flow through layers. Include ALL major components — min 8, max 20 nodes. Node labels are plain English, not file paths. Show data stores with `[(Name)]` syntax.
 - Layer names: plain English (e.g., "API Layer", "Business Logic", "Data Layer") — not folder names
 
 **Token Budget**: ~1500 tokens output
@@ -236,6 +236,7 @@ python extract_section.py workflows repo-analysis.json
     {
       "name": "Workflow Name",
       "trigger": "What starts this workflow (user action, event, cron, etc.)",
+      "steps_summary": ["Entry Point", "Controller", "Service", "Repository", "Database"],
       "steps": [
         {
           "file": "src/routes/auth.ts",
@@ -251,8 +252,7 @@ python extract_section.py workflows repo-analysis.json
 
 **Writing Rules**:
 - Max 3 workflows for repos under 500 files; max 8 for 500-2000 files; max 12 for 2000+ files. Max 8 steps each.
-- Max 8 steps each
-- Step narrative: "Data flows here from [previous step]. This function [action]. The result [what happens next]."
+- `steps_summary`: Array of 3-6 short layer labels showing the call chain left-to-right. First = entry point, last = datastore or final output. Max 25 chars each. Example: `["POST /login", "AuthController", "AuthService", "UserRepo", "PostgreSQL"]`
 - Mermaid: use `sequenceDiagram`. Actors: User/Client, then system components. Max 10 messages.
 - If a step couldn't be verified by workflow-verifier: add "(unverified)" to the narrative
 - Choose workflows that show the most important user-facing behaviors — prioritize: auth flow, main data fetch, a create/update mutation, and (for Angular) a lazy-loaded route activation
@@ -271,6 +271,7 @@ python extract_section.py workflows repo-analysis.json
       "narrative": "The request arrives here first. Express validates that `email` and `password` fields are present (using Zod schema validation). If validation fails, it returns a 400 immediately. Otherwise, it passes the credentials to `AuthService.login()` and awaits the result."
     }
   ],
+  "steps_summary": ["POST /api/auth/login", "Router", "AuthService", "Database", "JWT token"],
   "mermaid": "sequenceDiagram\n  actor User\n  User->>Router: POST /api/auth/login\n  Router->>Validator: Zod schema check\n  Validator-->>Router: validated data\n  Router->>AuthService: login(email, password)\n  AuthService->>Database: find user by email\n  Database-->>AuthService: user record\n  AuthService->>AuthService: bcrypt.compare()\n  AuthService-->>Router: JWT token\n  Router-->>User: 200 {token}"
 }
 ```

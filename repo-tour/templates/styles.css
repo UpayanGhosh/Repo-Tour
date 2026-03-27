@@ -380,7 +380,13 @@ kbd {
 .step-function { font-size: 0.82rem; font-weight: 600; color: var(--accent); margin-bottom: 0.25rem; font-family: var(--font-mono); }
 .step-narrative { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.65; }
 .mermaid-wrap { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-3); overflow-x: auto; margin: var(--space-2) 0; }
+.mermaid-hero { padding: var(--space-4); min-height: 260px; display: flex; align-items: center; justify-content: center; }
+.mermaid-hero .mermaid { width: 100%; }
 .mermaid-fallback { font-size: 0.73rem; color: var(--text-tertiary); font-style: italic; margin-top: 0.5rem; }
+/* Call-chain flow strip */
+.flow-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin: var(--space-2) 0 var(--space-3); }
+.flow-node { background: var(--accent-subtle); border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.28rem 0.7rem; font-size: 0.75rem; font-family: var(--font-mono); color: var(--accent); white-space: nowrap; font-weight: 500; }
+.flow-arrow { color: var(--text-tertiary); padding: 0 0.35rem; font-size: 1rem; line-height: 1; flex-shrink: 0; }
 
 /* Stack */
 .stack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem; margin-top: var(--space-2); }
