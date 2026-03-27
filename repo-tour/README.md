@@ -1,8 +1,8 @@
-# tldr-skill — Instant Codebase Intelligence for Claude Code
+# tldr-skill — Instant Codebase Intelligence for AI Coding Agents
 
 > **Too Long, Didn't Read?** Now you don't have to.
 
-`tldr-skill` is a [Claude Code](https://claude.ai/code) skill that turns any codebase — regardless of language or framework — into a fully interactive, self-hosted explainer website in minutes. Point it at a repo, say two words, and get a living onboarding document that new developers can actually use.
+`tldr-skill` is an AI agent skill that turns any codebase — regardless of language or framework — into a fully interactive, self-hosted explainer website in minutes. Works with [Claude Code](https://claude.ai/code), [OpenCode](https://opencode.ai), [Gemini CLI](https://geminicli.com), and [Codex CLI](https://openai.com/codex/). Point it at a repo, say two words, and get a living onboarding document that new developers can actually use.
 
 ---
 
@@ -29,27 +29,205 @@ Built-in: full-text search (Cmd/Ctrl+K), dark/light mode, three-column layout, m
 
 ---
 
+## Compatibility
+
+| Tool | Compatible? | Notes |
+|---|---|---|
+| **Claude Code** | ✅ Native | Built for this — full support |
+| **OpenCode** | ✅ Native | Explicitly supports Anthropic-style skills, drop-in compatible |
+| **Gemini CLI** | ✅ Compatible | Same Agent Skills open standard, different install path |
+| **Codex CLI** | ⚠️ Partial | Python scripts work; needs a thin plugin wrapper for auto-trigger |
+
+> The Python pipeline scripts are pure standard library — they run identically regardless of which AI tool orchestrates them.
+
+---
+
 ## Install
 
-### Via npm (recommended)
+### Claude Code
+
+#### macOS / Linux
 
 ```bash
+# Via npm (recommended — installs automatically)
 npx tldr-skill
+
+# Manual
+git clone https://github.com/upayan/tldr-skill
+cp -r tldr-skill/repo-tour ~/.claude/skills/tldr
+
+# Verify
+ls ~/.claude/skills/tldr/SKILL.md
 ```
 
-This installs the skill to `~/.claude/skills/tldr/` automatically.
+#### Windows
 
-### Manual
+```powershell
+# Via npm (recommended)
+npx tldr-skill
+
+# Manual
+git clone https://github.com/upayan/tldr-skill
+xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.claude\skills\tldr
+
+# Verify
+dir %USERPROFILE%\.claude\skills\tldr\SKILL.md
+```
+
+**Trigger:** Open Claude Code in any repo → type `/tldr` or say `"explain this repo"`.
+
+---
+
+### OpenCode
+
+OpenCode natively supports Anthropic-compatible skills — no adaptation needed, pure drop-in.
+
+#### macOS / Linux
 
 ```bash
 git clone https://github.com/upayan/tldr-skill
+mkdir -p ~/.config/opencode/skills
+cp -r tldr-skill/repo-tour ~/.config/opencode/skills/tldr
+
+# Verify
+ls ~/.config/opencode/skills/tldr/SKILL.md
+```
+
+#### Windows
+
+```powershell
+git clone https://github.com/upayan/tldr-skill
+mkdir -p %APPDATA%\opencode\skills
+xcopy /E /I tldr-skill\repo-tour %APPDATA%\opencode\skills\tldr
+
+# Verify
+dir %APPDATA%\opencode\skills\tldr\SKILL.md
+```
+
+**Trigger:** Type `/tldr` or say `"explain this repo"`. OpenCode discovers skills from `~/.config/opencode/skills/` at startup.
+
+---
+
+### Gemini CLI
+
+Gemini CLI uses the same Agent Skills open standard. Install to `~/.gemini/skills/` or the `~/.agents/skills/` cross-tool alias.
+
+#### macOS / Linux
+
+```bash
+git clone https://github.com/upayan/tldr-skill
+
+# Option A — Gemini-specific path
+mkdir -p ~/.gemini/skills
+cp -r tldr-skill/repo-tour ~/.gemini/skills/tldr
+
+# Option B — cross-tool alias (works for Gemini, OpenCode, and others simultaneously)
+mkdir -p ~/.agents/skills
+cp -r tldr-skill/repo-tour ~/.agents/skills/tldr
+
+# Verify
+ls ~/.gemini/skills/tldr/SKILL.md
+```
+
+#### Windows
+
+```powershell
+git clone https://github.com/upayan/tldr-skill
+
+# Option A — Gemini-specific path
+mkdir -p %USERPROFILE%\.gemini\skills
+xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.gemini\skills\tldr
+
+# Option B — cross-tool alias
+mkdir -p %USERPROFILE%\.agents\skills
+xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.agents\skills\tldr
+
+# Verify
+dir %USERPROFILE%\.gemini\skills\tldr\SKILL.md
+```
+
+**Trigger:** Type `/tldr` or say `"explain this repo"`. Gemini CLI auto-discovers skills in `~/.gemini/skills/`.
+
+---
+
+### Codex CLI (OpenAI)
+
+Codex uses a different plugin manifest. The Python scripts work perfectly — only the auto-trigger needs a wrapper file.
+
+#### Step 1 — Clone
+
+```bash
+git clone https://github.com/upayan/tldr-skill
+```
+
+#### Step 2 — Create plugin manifest
+
+Create `tldr-skill/repo-tour/.codex-plugin/plugin.json`:
+
+```json
+{
+  "name": "tldr",
+  "version": "1.4.0",
+  "description": "Turn any repo into an interactive codebase explainer. Say 'explain this repo' or /tldr to trigger.",
+  "triggers": ["/tldr", "explain this repo", "generate docs", "onboard me"],
+  "entrypoint": "SKILL.md"
+}
+```
+
+#### Step 3 — Install
+
+**macOS / Linux:**
+```bash
+mkdir -p ~/.codex/plugins/tldr/.codex-plugin
+cp -r tldr-skill/repo-tour/. ~/.codex/plugins/tldr/
+cp tldr-skill/repo-tour/.codex-plugin/plugin.json ~/.codex/plugins/tldr/.codex-plugin/
+
+# Enable
+codex plugin enable tldr
+```
+
+**Windows:**
+```powershell
+mkdir -p %USERPROFILE%\.codex\plugins\tldr\.codex-plugin
+xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.codex\plugins\tldr
+copy tldr-skill\repo-tour\.codex-plugin\plugin.json %USERPROFILE%\.codex\plugins\tldr\.codex-plugin\plugin.json
+
+# Enable
+codex plugin enable tldr
+```
+
+**Trigger:** Type `/tldr` in Codex or say `"explain this repo"`.
+
+---
+
+### Install for all tools at once
+
+Use the `~/.agents/skills/` shared alias — recognised by Gemini CLI, OpenCode, and others. Then separately install for Claude Code and Codex.
+
+**macOS / Linux:**
+```bash
+git clone https://github.com/upayan/tldr-skill
+
+# Shared alias (Gemini + OpenCode + others)
+mkdir -p ~/.agents/skills
+cp -r tldr-skill/repo-tour ~/.agents/skills/tldr
+
+# Claude Code
+mkdir -p ~/.claude/skills
 cp -r tldr-skill/repo-tour ~/.claude/skills/tldr
 ```
 
-Verify it's installed:
+**Windows:**
+```powershell
+git clone https://github.com/upayan/tldr-skill
 
-```bash
-ls ~/.claude/skills/tldr/SKILL.md
+# Shared alias (Gemini + OpenCode + others)
+mkdir -p %USERPROFILE%\.agents\skills
+xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.agents\skills\tldr
+
+# Claude Code
+mkdir -p %USERPROFILE%\.claude\skills
+xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.claude\skills\tldr
 ```
 
 ---
