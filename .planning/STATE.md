@@ -9,9 +9,11 @@ Active development on v1.x feature additions.
 
 Latest commit: `2aac122` — feat(quick-1-code-map-01): update index.html, SKILL.md, ANALYSIS_GUIDE.md for Code Map
 
-## Completed Quick Tasks
+### Quick Tasks Completed
 
-- quick-1: Interactive Code Map (Cytoscape.js) — build_graph.py + gen_code_map() + template updates
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Add Interactive Code Map (Cytoscape.js) to repo-tour skill — zero-LLM graph pipeline | 2026-03-27 | 43911f0 | [1-add-interactive-code-map-cytoscape-js-to](.planning/quick/1-add-interactive-code-map-cytoscape-js-to/) |
 
 ## Key Decisions
 
