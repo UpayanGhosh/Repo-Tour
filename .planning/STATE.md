@@ -1,7 +1,7 @@
 # Project State
 
 **Project:** repo-tour (tldr-skill)
-**Last activity:** 2026-03-28 - Optimised scan_repo hot path (git ls-files, stat bucketing, parallel LOC sampling)
+**Last activity:** 2026-03-28 - Completed quick task 2: implement this plan (Verified)
 
 ## Current Status
 
@@ -11,10 +11,10 @@ Latest commit: `2aac122` — feat(quick-1-code-map-01): update index.html, SKILL
 
 ### Quick Tasks Completed
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 1 | Add Interactive Code Map (Cytoscape.js) to repo-tour skill — zero-LLM graph pipeline | 2026-03-27 | 43911f0 | [1-add-interactive-code-map-cytoscape-js-to](.planning/quick/1-add-interactive-code-map-cytoscape-js-to/) |
-| 2 | Optimise scan_repo hot path — git ls-files enumeration, stat bucketing, parallel LOC sampling | 2026-03-28 | 1e1c46b | [2-implement-this-plan](.planning/quick/2-implement-this-plan/) |
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 1 | Add Interactive Code Map (Cytoscape.js) to repo-tour skill — zero-LLM graph pipeline | 2026-03-27 | 43911f0 | | [1-add-interactive-code-map-cytoscape-js-to](.planning/quick/1-add-interactive-code-map-cytoscape-js-to/) |
+| 2 | Optimise scan_repo hot path — git ls-files enumeration, stat bucketing, parallel LOC sampling | 2026-03-28 | 1e1c46b | Verified | [2-implement-this-plan](.planning/quick/2-implement-this-plan/) |
 
 ## Key Decisions
 
