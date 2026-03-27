@@ -673,7 +673,7 @@ if(typeof d3!=='undefined'){{
 
 
 def gen_code_map(graph_data, modules_content):
-    """Build interactive Cytoscape.js code dependency map section."""
+    """Build interactive D3 forceSimulation code dependency map — Obsidian-style."""
     if not graph_data:
         return ''
 
@@ -701,10 +701,24 @@ def gen_code_map(graph_data, modules_content):
         nd['simple_explanation'] = mod_lookup.get(n.get('fullPath', ''), '')
         enriched_nodes.append(nd)
 
-    # Role → OKLCH hue map
+    # Role → OKLCH color strings (exact Obsidian-style palette)
+    ROLE_COLORS = {
+        'service':    'oklch(68% 0.20 262)',
+        'route':      'oklch(68% 0.18 200)',
+        'model':      'oklch(68% 0.18 145)',
+        'utility':    'oklch(62% 0.12 240)',
+        'config':     'oklch(72% 0.18 60)',
+        'middleware': 'oklch(68% 0.18 290)',
+        'test':       'oklch(58% 0.08 240)',
+        'migration':  'oklch(65% 0.16 320)',
+        'build':      'oklch(68% 0.18 30)',
+        'folder':     'oklch(75% 0.14 50)',
+        'default':    'oklch(62% 0.10 240)',
+    }
+    # Also keep hues for chip borders
     ROLE_HUES = {
         'service': 262, 'route': 200, 'model': 145, 'utility': 240,
-        'config': 60,   'middleware': 290, 'test': 220, 'migration': 320,
+        'config': 60,   'middleware': 290, 'test': 240, 'migration': 320,
         'build': 30,    'folder': 50,
     }
 
@@ -717,18 +731,21 @@ def gen_code_map(graph_data, modules_content):
         for r in roles
     )
 
-    # Build stats bar
+    # Build stats line
+    node_count = meta.get('nodes_in_graph', len(nodes))
+    edge_count = meta.get('edges_in_graph', len(edges))
+    stats_subtitle = f'{node_count} nodes \u00b7 {edge_count} edges \u00b7 click to explore \u00b7 drag to rearrange'
     stats_html = (
-        f'<span class="cm-stat">{meta.get("nodes_in_graph", len(nodes))} nodes</span>'
-        f'<span class="cm-stat">{meta.get("edges_in_graph", len(edges))} edges</span>'
+        f'<span class="cm-stat">{node_count} nodes</span>'
+        f'<span class="cm-stat">{edge_count} edges</span>'
         f'<span class="cm-stat">{meta.get("total_files_scanned", "?")} files scanned</span>'
     )
     if meta.get('files_collapsed_into_folders', 0):
         stats_html += f'<span class="cm-stat">{meta["files_collapsed_into_folders"]} collapsed into folders</span>'
 
-    # Serialize graph data for inline JS
-    cy_nodes = [
-        {'data': {
+    # Serialize graph data for inline JS (flat arrays, no Cytoscape wrapper)
+    d3_nodes = [
+        {{
             'id':                 n['id'],
             'label':              n.get('label', n['id']),
             'fullPath':           n.get('fullPath', n['id']),
@@ -742,9 +759,9 @@ def gen_code_map(graph_data, modules_content):
         }}
         for n in enriched_nodes
     ]
-    cy_edges = [
-        {'data': {
-            'id':     f'e-{i}',
+    d3_edges = [
+        {{
+            'id':     f'e-{{i}}',
             'source': eg['source'],
             'target': eg['target'],
             'weight': eg.get('weight', 1),
@@ -752,180 +769,279 @@ def gen_code_map(graph_data, modules_content):
         for i, eg in enumerate(edges)
     ]
 
-    graph_json     = json.dumps({'nodes': cy_nodes, 'edges': cy_edges}, separators=(',', ':'))
+    graph_json     = json.dumps({{'nodes': d3_nodes, 'edges': d3_edges}}, separators=(',', ':'))
     expansion_json = json.dumps(folder_expansions, separators=(',', ':'))
-    role_hues_json = json.dumps(ROLE_HUES)
+    role_colors_json = json.dumps(ROLE_COLORS)
+    roles_json     = json.dumps(roles)
 
-    # Inline JS — full Cytoscape init + interactions
     inline_js = f"""
 (function(){{
-  if(window.CYTOSCAPE_FAILED||typeof cytoscape==='undefined'){{
+  if(window.D3_FAILED||typeof d3==='undefined'){{
     // Fallback: static table
-    var nodes=GRAPH_DATA.nodes.map(function(n){{return n.data;}});
-    nodes.sort(function(a,b){{return b.connectivity-a.connectivity;}});
-    var rows=nodes.slice(0,50).map(function(n){{
-      return '<tr><td>'+n.fullPath+'</td><td>'+n.role+'</td><td>'+n.loc+'</td><td>'+n.connectivity+'</td></tr>';
+    var ns=GRAPH_DATA.nodes.slice().sort(function(a,b){{return b.connectivity-a.connectivity;}});
+    var rows=ns.slice(0,30).map(function(n){{
+      return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">'+n.fullPath+'</td>'
+        +'<td style="padding:4px 8px;border-bottom:1px solid var(--border)">'+n.role+'</td>'
+        +'<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right">'+n.connectivity+'</td></tr>';
     }}).join('');
     document.getElementById('code-map-fallback').innerHTML=
-      '<table style="width:100%;border-collapse:collapse;font-size:0.8rem"><thead><tr><th>File</th><th>Role</th><th>LOC</th><th>Connections</th></tr></thead><tbody>'+rows+'</tbody></table>';
-    document.getElementById('code-map-canvas-wrap').style.display='none';
+      '<table style="width:100%;border-collapse:collapse;font-size:0.8rem">'
+      +'<thead><tr>'
+      +'<th style="padding:6px 8px;border-bottom:2px solid var(--border);text-align:left">File</th>'
+      +'<th style="padding:6px 8px;border-bottom:2px solid var(--border);text-align:left">Role</th>'
+      +'<th style="padding:6px 8px;border-bottom:2px solid var(--border);text-align:right">Connections</th>'
+      +'</tr></thead><tbody>'+rows+'</tbody></table>';
+    document.getElementById('cm-wrap').style.display='none';
     document.getElementById('code-map-fallback').style.display='block';
     return;
   }}
 
-  var ROLE_HUES={role_hues_json};
+  var ROLE_COLORS={role_colors_json};
   function roleColor(role){{
-    var h=ROLE_HUES[role]||240;
-    return 'oklch(58% 0.18 '+h+')';
-  }}
-  function roleColorSubtle(role){{
-    var h=ROLE_HUES[role]||240;
-    return 'oklch(94% 0.04 '+h+')';
+    return ROLE_COLORS[role]||ROLE_COLORS['default'];
   }}
 
-  var cy=cytoscape({{
-    container: document.getElementById('code-map-cy'),
-    elements: GRAPH_DATA,
-    style: [
-      {{
-        selector: 'node[type="file"]',
-        style: {{
-          'label': 'data(label)',
-          'width': 'mapData(connectivity, 1, 20, 18, 52)',
-          'height': 'mapData(connectivity, 1, 20, 18, 52)',
-          'background-color': function(ele){{ return roleColor(ele.data('role')); }},
-          'color': 'var(--text-secondary)',
-          'font-size': 9,
-          'text-valign': 'bottom',
-          'text-halign': 'center',
-          'text-margin-y': 4,
-          'text-max-width': 80,
-          'text-wrap': 'ellipsis',
-          'border-width': 0,
-          'border-color': 'transparent',
-          'z-index': 10,
-        }}
-      }},
-      {{
-        selector: 'node[type="folder"]',
-        style: {{
-          'label': 'data(label)',
-          'shape': 'diamond',
-          'width': 'mapData(connectivity, 1, 30, 28, 64)',
-          'height': 'mapData(connectivity, 1, 30, 28, 64)',
-          'background-color': function(ele){{ return roleColor(ele.data('role')); }},
-          'border-width': 2,
-          'border-style': 'dashed',
-          'border-color': function(ele){{ return roleColor(ele.data('role')); }},
-          'opacity': 0.75,
-          'color': 'var(--text-secondary)',
-          'font-size': 9,
-          'text-valign': 'bottom',
-          'text-halign': 'center',
-          'text-margin-y': 4,
-          'z-index': 5,
-        }}
-      }},
-      {{
-        selector: 'edge',
-        style: {{
-          'width': 1,
-          'opacity': 0.35,
-          'line-color': 'var(--text-secondary)',
-          'target-arrow-color': 'var(--text-secondary)',
-          'target-arrow-shape': 'triangle',
-          'arrow-scale': 0.7,
-          'curve-style': 'bezier',
-          'z-index': 1,
-        }}
-      }},
-      {{
-        selector: '.highlighted',
-        style: {{
-          'border-width': 2.5,
-          'border-color': 'oklch(78% 0.18 80)',
-          'opacity': 1,
-          'z-index': 999,
-        }}
-      }},
-      {{
-        selector: '.faded',
-        style: {{ 'opacity': 0.08 }}
-      }},
-      {{
-        selector: '.search-match',
-        style: {{
-          'border-width': 2.5,
-          'border-color': 'oklch(58% 0.22 25)',
-          'opacity': 1,
-          'z-index': 999,
-        }}
-      }},
-    ],
-    layout: {{
-      name: 'cose',
-      nodeRepulsion: 4500,
-      idealEdgeLength: 120,
-      gravity: 0.8,
-      numIter: 1000,
-      animate: true,
-      animationDuration: 600,
-      fit: true,
-      padding: 40,
-    }},
+  // Clamp helper
+  function clamp(v,lo,hi){{return Math.max(lo,Math.min(hi,v));}}
+
+  // Node radius: proportional to connectivity, folder nodes larger
+  function nodeR(d){{
+    if(d.type==='folder'){{
+      return clamp(14+d.connectivity*1.2,14,28);
+    }}
+    return clamp(4+d.connectivity*1.5,5,18);
+  }}
+
+  var wrap=document.getElementById('cm-wrap');
+  var svg=d3.select('#cm-svg');
+  var W=wrap.clientWidth||900;
+  var H=620;
+
+  // SVG defs: glow filter
+  var defs=svg.select('defs');
+  defs.append('filter')
+    .attr('id','node-glow')
+    .attr('x','-50%').attr('y','-50%')
+    .attr('width','200%').attr('height','200%')
+    .html('<feGaussianBlur stdDeviation="3" result="coloredBlur"/>'
+      +'<feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>');
+
+  defs.append('filter')
+    .attr('id','node-glow-hover')
+    .attr('x','-80%').attr('y','-80%')
+    .attr('width','260%').attr('height','260%')
+    .html('<feGaussianBlur stdDeviation="6" result="coloredBlur"/>'
+      +'<feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>');
+
+  // Zoom container
+  var zoomG=svg.append('g').attr('class','cm-zoom-root');
+  var edgeG=zoomG.append('g').attr('class','cm-edges');
+  var nodeG=zoomG.append('g').attr('class','cm-nodes');
+  var labelG=zoomG.append('g').attr('class','cm-labels');
+
+  // Zoom behaviour
+  var zoom=d3.zoom()
+    .scaleExtent([0.1,8])
+    .on('zoom',function(event){{
+      zoomG.attr('transform',event.transform);
+    }});
+  svg.call(zoom);
+
+  // Deep-copy nodes/edges (D3 mutates them)
+  var nodes=GRAPH_DATA.nodes.map(function(n){{return Object.assign({{}},n);}});
+  var edges=GRAPH_DATA.edges.map(function(eg){{return Object.assign({{}},eg);}});
+
+  // Build adjacency for hover highlight
+  var adjSet={{}};
+  edges.forEach(function(eg){{
+    var s=eg.source.id||eg.source;
+    var t=eg.target.id||eg.target;
+    adjSet[s+':'+t]=true;
+    adjSet[t+':'+s]=true;
   }});
+
+  // D3 force simulation
+  var sim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(edges).id(function(d){{return d.id;}}).distance(60).strength(0.3))
+    .force('charge',d3.forceManyBody().strength(-120).distanceMax(300))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collide',d3.forceCollide().radius(function(d){{return nodeR(d)+4;}}).strength(0.8));
+
+  // Pre-settle: run 300 ticks so layout starts settled
+  sim.stop();
+  for(var t=0;t<300;t++)sim.tick();
+
+  // Draw edges
+  var edgeSel=edgeG.selectAll('line')
+    .data(edges).enter().append('line')
+    .attr('class','cm-edge')
+    .attr('stroke-width',0.8)
+    .attr('stroke-opacity',0.25)
+    .attr('stroke',function(d){{
+      var src=d.source;
+      var role=src.role||'utility';
+      return roleColor(role);
+    }});
+
+  // Draw nodes
+  var nodeSel=nodeG.selectAll('circle')
+    .data(nodes).enter().append('circle')
+    .attr('class','cm-node')
+    .attr('r',function(d){{return nodeR(d);}})
+    .attr('fill',function(d){{return roleColor(d.role);}})
+    .attr('fill-opacity',function(d){{return d.type==='folder'?0.95:0.85;}})
+    .attr('stroke',function(d){{return roleColor(d.role);}})
+    .attr('stroke-width',1.5)
+    .attr('filter','url(#node-glow)')
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start',function(event,d){{
+        if(!event.active)sim.alphaTarget(0.3).restart();
+        d.fx=d.x;d.fy=d.y;
+      }})
+      .on('drag',function(event,d){{d.fx=event.x;d.fy=event.y;}})
+      .on('end',function(event,d){{
+        if(!event.active)sim.alphaTarget(0);
+        d.fx=null;d.fy=null;
+      }})
+    );
+
+  // Draw labels (always-on for high-connectivity nodes, rest on hover)
+  var alwaysLabelThreshold=4;
+  var labelSel=labelG.selectAll('text')
+    .data(nodes).enter().append('text')
+    .attr('class','cm-label')
+    .attr('dy',function(d){{return nodeR(d)+12;}})
+    .attr('text-anchor','middle')
+    .attr('font-size',10)
+    .attr('fill',function(d){{return roleColor(d.role);}})
+    .attr('pointer-events','none')
+    .attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.9:0;}})
+    .text(function(d){{
+      var lbl=d.label||d.id;
+      return lbl.length>20?lbl.slice(0,19)+'\u2026':lbl;
+    }});
+
+  // Position update on tick
+  sim.on('tick',function(){{
+    edgeSel
+      .attr('x1',function(d){{return d.source.x;}})
+      .attr('y1',function(d){{return d.source.y;}})
+      .attr('x2',function(d){{return d.target.x;}})
+      .attr('y2',function(d){{return d.target.y;}});
+    nodeSel
+      .attr('cx',function(d){{return d.x;}})
+      .attr('cy',function(d){{return d.y;}});
+    labelSel
+      .attr('x',function(d){{return d.x;}})
+      .attr('y',function(d){{return d.y;}});
+  }});
+
+  // Let remaining ticks animate
+  sim.alphaDecay(0.02).restart();
 
   // Tooltip
   var tooltip=document.getElementById('code-map-tooltip');
-  cy.on('mouseover','node',function(evt){{
-    var n=evt.target.data();
-    var expl=n.simple_explanation?'<p style="margin:4px 0 0;color:var(--text-secondary);font-size:0.78rem">'+n.simple_explanation+'</p>':'';
-    tooltip.innerHTML='<strong style="font-size:0.85rem">'+n.label+'</strong>'
-      +'<br><span style="color:var(--text-secondary);font-size:0.78rem">'+n.fullPath+'</span>'
-      +'<br><span style="font-size:0.78rem">'+n.role+' \u00b7 '+n.loc+' LOC \u00b7 '+n.connectivity+' connections</span>'
+
+  // Hover interactions
+  nodeSel.on('mouseenter',function(event,d){{
+    var isDark=document.documentElement.getAttribute('data-theme')==='dark';
+    // Fade all
+    nodeSel.attr('opacity',0.08);
+    edgeSel.attr('stroke-opacity',0.05);
+    labelSel.attr('opacity',0);
+    // Highlight this node
+    d3.select(this)
+      .attr('opacity',1)
+      .attr('stroke-width',2.5)
+      .attr('filter','url(#node-glow-hover)');
+    // Highlight connected edges + neighbors
+    var thisId=d.id;
+    edgeSel.filter(function(eg){{
+      var s=eg.source.id||eg.source;
+      var t=eg.target.id||eg.target;
+      return s===thisId||t===thisId;
+    }}).attr('stroke-opacity',0.7);
+    nodeSel.filter(function(nd){{
+      return nd.id!==thisId&&(adjSet[thisId+':'+nd.id]||adjSet[nd.id+':'+thisId]);
+    }}).attr('opacity',1);
+    // Label for hovered
+    labelSel.filter(function(nd){{return nd.id===thisId;}}).attr('opacity',1);
+
+    // Tooltip
+    var expl=d.simple_explanation
+      ?'<p style="margin:4px 0 0;color:var(--text-secondary);font-size:0.78rem">'+d.simple_explanation+'</p>':'';
+    tooltip.innerHTML='<strong style="font-size:0.85rem">'+d.label+'</strong>'
+      +'<br><span style="color:var(--text-secondary);font-size:0.78rem">'+d.fullPath+'</span>'
+      +'<br><span style="font-size:0.78rem">'+d.role+' \u00b7 '+d.loc+' LOC \u00b7 '+d.connectivity+' connections</span>'
       +expl;
     tooltip.style.display='block';
-    cy.elements().addClass('faded');
-    evt.target.removeClass('faded').addClass('highlighted');
-    evt.target.neighborhood().removeClass('faded').addClass('highlighted');
-  }});
-  cy.on('mouseout','node',function(){{
-    tooltip.style.display='none';
-    cy.elements().removeClass('faded highlighted');
-  }});
-  document.getElementById('code-map-canvas-wrap').addEventListener('mousemove',function(e){{
-    if(tooltip.style.display==='block'){{
-      tooltip.style.left=(e.offsetX+14)+'px';
-      tooltip.style.top=(e.offsetY+14)+'px';
-    }}
   }});
 
-  // Click: scroll to module section or expand folder
-  cy.on('tap','node',function(evt){{
-    var n=evt.target.data();
-    if(n.type==='folder'){{
-      var fid='folder:'+n.id.replace(/^folder:/,'');
-      var exp=FOLDER_EXPANSIONS[fid]||FOLDER_EXPANSIONS[n.id];
+  nodeSel.on('mousemove',function(event){{
+    var rect=wrap.getBoundingClientRect();
+    tooltip.style.left=(event.clientX-rect.left+14)+'px';
+    tooltip.style.top=(event.clientY-rect.top+14)+'px';
+  }});
+
+  nodeSel.on('mouseleave',function(){{
+    tooltip.style.display='none';
+    nodeSel.attr('opacity',1).attr('stroke-width',1.5).attr('filter','url(#node-glow)');
+    edgeSel.attr('stroke-opacity',0.25);
+    labelSel.attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.9:0;}});
+  }});
+
+  // Click: scroll to module OR expand folder
+  nodeSel.on('click',function(event,d){{
+    event.stopPropagation();
+    if(d.type==='folder'){{
+      var fid='folder:'+d.id.replace(/^folder:/,'');
+      var exp=FOLDER_EXPANSIONS[fid]||FOLDER_EXPANSIONS[d.id];
       if(!exp)return;
-      var toAdd=[];
+      var existingIds={{}};
+      nodes.forEach(function(n){{existingIds[n.id]=true;}});
+      var newNodes=[];
+      var newEdges=[];
       (exp.nodes||[]).forEach(function(nd){{
-        if(!cy.getElementById(nd.id).length){{
-          toAdd.push({{data:{{id:nd.id,label:nd.label||nd.id.split('/').pop(),fullPath:nd.id,role:nd.role||'utility',loc:nd.loc||0,connectivity:nd.connectivity||0,tier:nd.tier||'isolated',type:'file',childCount:0,simple_explanation:''}}}});
+        if(!existingIds[nd.id]){{
+          var nn=Object.assign({{}},nd,{{x:d.x+(Math.random()-0.5)*60,y:d.y+(Math.random()-0.5)*60}});
+          newNodes.push(nn);
         }}
       }});
       (exp.edges||[]).forEach(function(eg,i){{
-        toAdd.push({{data:{{id:'exp-'+i+'-'+eg.source+'-'+eg.target,source:eg.source,target:eg.target,weight:eg.weight||1}}}});
+        newEdges.push({{id:'exp-'+i+'-'+eg.source+'-'+eg.target,source:eg.source,target:eg.target,weight:eg.weight||1}});
       }});
-      if(toAdd.length){{
-        cy.add(toAdd);
-        cy.layout({{name:'cose',animate:true,animationDuration:600,fit:false,padding:40,nodeRepulsion:4500,idealEdgeLength:120}}).run();
+      if(newNodes.length){{
+        newNodes.forEach(function(n){{nodes.push(n);}});
+        newEdges.forEach(function(eg){{edges.push(eg);}});
+        rebuildGraph();
       }}
     }} else {{
-      var slug=n.fullPath.replace(/[/\\.]/g,'-').toLowerCase();
+      var slug=d.fullPath.replace(/[/\\.]/g,'-').toLowerCase();
       var el=document.getElementById('module-'+slug);
       if(el)el.scrollIntoView({{behavior:'smooth'}});
     }}
   }});
+
+  // Rebuild graph (after folder expansion)
+  function rebuildGraph(){{
+    edgeSel.remove();
+    nodeSel.remove();
+    labelSel.remove();
+    // re-run (recursive call simplified — just re-init)
+    location.reload(); // simplest stable approach for expansion
+  }}
+
+  // Theme awareness: swap label/canvas color on theme toggle
+  var themeBtn=document.getElementById('theme-toggle');
+  if(themeBtn){{
+    themeBtn.addEventListener('click',function(){{
+      setTimeout(function(){{
+        var isDark=document.documentElement.getAttribute('data-theme')==='dark';
+        wrap.style.background=isDark?'#0d1117':'#f6f8fa';
+      }},50);
+    }});
+  }}
 
   // Search (debounced 200ms)
   var searchTimer;
@@ -933,18 +1049,29 @@ def gen_code_map(graph_data, modules_content):
     clearTimeout(searchTimer);
     var q=this.value.trim().toLowerCase();
     searchTimer=setTimeout(function(){{
-      cy.elements().removeClass('search-match faded');
-      if(!q)return;
-      cy.nodes().forEach(function(n){{
-        var match=n.data('label').toLowerCase().includes(q)||n.data('fullPath').toLowerCase().includes(q);
-        if(match)n.addClass('search-match');
-        else n.addClass('faded');
+      if(!q){{
+        nodeSel.attr('opacity',1).attr('filter','url(#node-glow)');
+        edgeSel.attr('stroke-opacity',0.25);
+        labelSel.attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.9:0;}});
+        return;
+      }}
+      nodeSel.attr('opacity',function(d){{
+        var match=(d.label||'').toLowerCase().includes(q)||(d.fullPath||'').toLowerCase().includes(q);
+        return match?1:0.06;
+      }}).attr('filter',function(d){{
+        var match=(d.label||'').toLowerCase().includes(q)||(d.fullPath||'').toLowerCase().includes(q);
+        return match?'url(#node-glow-hover)':'url(#node-glow)';
+      }});
+      edgeSel.attr('stroke-opacity',0.06);
+      labelSel.attr('opacity',function(d){{
+        var match=(d.label||'').toLowerCase().includes(q)||(d.fullPath||'').toLowerCase().includes(q);
+        return match?1:0;
       }});
     }},200);
   }});
 
-  // Filter chips
-  var activeRoles=new Set({json.dumps(roles)});
+  // Role filter chips
+  var activeRoles=new Set({roles_json});
   document.querySelectorAll('.cm-chip').forEach(function(chip){{
     chip.addEventListener('click',function(){{
       var role=this.dataset.role;
@@ -958,40 +1085,47 @@ def gen_code_map(graph_data, modules_content):
         this.setAttribute('aria-pressed','true');
         this.style.opacity='1';
       }}
-      cy.nodes().forEach(function(n){{
-        if(activeRoles.has(n.data('role')))n.removeClass('faded');
-        else n.addClass('faded');
+      nodeSel.attr('opacity',function(d){{return activeRoles.has(d.role)?1:0.05;}});
+      edgeSel.attr('stroke-opacity',function(d){{
+        var s=d.source.role||'utility';
+        var t=d.target.role||'utility';
+        return (activeRoles.has(s)&&activeRoles.has(t))?0.25:0.03;
       }});
     }});
   }});
 
-  // Layout toggle
-  var layoutMode='cose';
-  document.getElementById('cm-layout-toggle').addEventListener('click',function(){{
-    layoutMode=layoutMode==='cose'?'breadthfirst':'cose';
-    this.textContent=layoutMode==='cose'?'Switch to Grid':'Switch to Force';
-    var opts=layoutMode==='cose'
-      ?{{name:'cose',animate:true,nodeRepulsion:4500,idealEdgeLength:120,gravity:0.8,numIter:1000}}
-      :{{name:'breadthfirst',animate:true,spacingFactor:1.5}};
-    cy.layout(opts).run();
+  // Fit view button
+  document.getElementById('cm-fit').addEventListener('click',function(){{
+    var bounds=zoomG.node().getBBox();
+    if(!bounds.width||!bounds.height)return;
+    var pad=40;
+    var scale=Math.min((W-pad*2)/bounds.width,(H-pad*2)/bounds.height,2);
+    var tx=W/2-scale*(bounds.x+bounds.width/2);
+    var ty=H/2-scale*(bounds.y+bounds.height/2);
+    svg.transition().duration(400).call(zoom.transform,d3.zoomIdentity.translate(tx,ty).scale(scale));
   }});
 
-  // Fit button
-  document.getElementById('cm-fit').addEventListener('click',function(){{ cy.fit(40); }});
+  // Reheat simulation
+  document.getElementById('cm-reheat').addEventListener('click',function(){{
+    sim.alpha(0.5).restart();
+  }});
 
   // Fullscreen
-  var wrap=document.getElementById('code-map-canvas-wrap');
   document.getElementById('cm-fullscreen').addEventListener('click',function(){{
     wrap.classList.toggle('cm-fullscreen-mode');
     var isFs=wrap.classList.contains('cm-fullscreen-mode');
     this.textContent=isFs?'Exit Fullscreen':'Fullscreen';
-    setTimeout(function(){{ cy.fit(40); }},200);
+    if(isFs){{
+      svg.attr('height','100vh');
+    }}else{{
+      svg.attr('height','620');
+    }}
   }});
-  document.addEventListener('keydown',function(e){{
-    if(e.key==='Escape'){{
+  document.addEventListener('keydown',function(ev){{
+    if(ev.key==='Escape'&&wrap.classList.contains('cm-fullscreen-mode')){{
       wrap.classList.remove('cm-fullscreen-mode');
       document.getElementById('cm-fullscreen').textContent='Fullscreen';
-      setTimeout(function(){{cy.fit(40);}},200);
+      svg.attr('height','620');
     }}
   }});
 
@@ -1000,16 +1134,17 @@ def gen_code_map(graph_data, modules_content):
 
     # Legend items HTML
     legend_items = ''.join(
-        f'<span class="cm-legend-item"><span class="cm-legend-dot" style="background:oklch(58% 0.18 {ROLE_HUES.get(r, 240)}deg)"></span>{e(r)}</span>'
+        f'<span class="cm-legend-item"><span class="cm-legend-dot" style="background:{ROLE_COLORS.get(r, ROLE_COLORS["default"])}"></span>{e(r)}</span>'
         for r in roles
     )
 
+    # Initial canvas background (dark by default — matches Obsidian)
+    canvas_bg = '#0d1117'
+
     return f'''<section class="section" id="code-map">
   <p class="section-label">Code Map</p>
-  <h2 class="section-title">Dependency Graph</h2>
-  <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem">
-    Every important file is a node. Every import is an edge. Hover to inspect, click a file to jump to its module doc, click a folder node to expand it.
-  </p>
+  <h2 class="section-title">Dependency graph</h2>
+  <p class="section-subtitle" style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:0.5rem">{e(stats_subtitle)}</p>
 
   <!-- Controls bar -->
   <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
@@ -1017,7 +1152,7 @@ def gen_code_map(graph_data, modules_content):
       style="flex:1;min-width:140px;max-width:220px;padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.82rem;background:var(--surface);color:var(--text-primary)">
     <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center">{chip_items}</div>
     <div style="margin-left:auto;display:flex;gap:0.4rem">
-      <button id="cm-layout-toggle" class="cm-ctrl-btn" title="Toggle layout algorithm">Switch to Grid</button>
+      <button id="cm-reheat" class="cm-ctrl-btn" title="Reheat simulation">Reheat</button>
       <button id="cm-fit" class="cm-ctrl-btn" title="Fit graph to viewport">Fit</button>
       <button id="cm-fullscreen" class="cm-ctrl-btn" title="Toggle fullscreen (Esc to exit)">Fullscreen</button>
     </div>
@@ -1027,18 +1162,20 @@ def gen_code_map(graph_data, modules_content):
   <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-bottom:0.75rem;font-size:0.78rem;color:var(--text-secondary)">{stats_html}</div>
 
   <!-- Canvas wrapper -->
-  <div id="code-map-canvas-wrap" style="position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-    <div id="code-map-cy" style="width:100%;height:480px;background:var(--surface)"></div>
-    <div id="code-map-tooltip" style="display:none;position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.75rem;max-width:280px;pointer-events:none;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.15)"></div>
+  <div id="cm-wrap" style="position:relative;width:100%;height:620px;border-radius:12px;overflow:hidden;background:{canvas_bg}">
+    <svg id="cm-svg" width="100%" height="620" style="display:block">
+      <defs></defs>
+    </svg>
+    <div id="code-map-tooltip" style="display:none;position:absolute;background:rgba(13,17,23,0.92);border:1px solid rgba(255,255,255,0.12);color:#e6edf3;border-radius:8px;padding:0.55rem 0.75rem;max-width:300px;pointer-events:none;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,0.4);font-size:0.82rem;line-height:1.5;backdrop-filter:blur(4px)"></div>
   </div>
 
-  <!-- Fallback for no Cytoscape -->
-  <div id="code-map-fallback" style="display:none"></div>
+  <!-- Fallback for no D3 -->
+  <div id="code-map-fallback" style="display:none;margin-top:1rem"></div>
 
   <!-- Legend -->
   <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem;font-size:0.78rem;color:var(--text-secondary);align-items:center">
     <span style="font-weight:500">Roles:</span>{legend_items}
-    <span style="margin-left:0.5rem">&#9670; = folder node (click to expand)</span>
+    <span style="margin-left:0.5rem">circle size = connectivity</span>
   </div>
 
   <style>
@@ -1049,8 +1186,8 @@ def gen_code_map(graph_data, modules_content):
     .cm-legend-dot{{width:10px;height:10px;border-radius:50%;flex-shrink:0}}
     .cm-stat::after{{content:" |";margin-left:0.4rem;color:var(--border)}}
     .cm-stat:last-child::after{{content:""}}
-    #code-map-canvas-wrap.cm-fullscreen-mode{{position:fixed;inset:0;z-index:9999;border-radius:0;border:none;height:100vh!important}}
-    #code-map-canvas-wrap.cm-fullscreen-mode #code-map-cy{{height:100vh!important}}
+    #cm-wrap.cm-fullscreen-mode{{position:fixed;inset:0;z-index:9999;border-radius:0;height:100vh!important;width:100vw!important}}
+    #cm-wrap.cm-fullscreen-mode #cm-svg{{height:100vh!important}}
   </style>
 
   <script>
