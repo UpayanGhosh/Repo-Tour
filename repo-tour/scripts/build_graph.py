@@ -26,7 +26,7 @@ SKIP_DIRS = {
 SOURCE_EXTENSIONS = {
     'typescript':   {'.ts', '.tsx'},
     'javascript':   {'.js', '.jsx', '.mjs', '.cjs'},
-    'python':       {'.py'},
+    'python':       {'.py', '.ipynb'},   # .ipynb = Jupyter notebooks (JSON blobs, parsed separately)
     'go':           {'.go'},
     'rust':         {'.rs'},
     'java':         {'.java'},
@@ -77,10 +77,33 @@ SCALE_THRESHOLDS = [
 # ============================================================
 
 def count_lines(path):
-    """Count non-blank lines in a file, ignoring read errors."""
+    """Count non-blank lines in a file, ignoring read errors.
+    For .ipynb files, counts only lines inside code cells (not the JSON wrapper).
+    """
+    if path.endswith('.ipynb'):
+        return _count_notebook_code_lines(path)
     try:
         with open(path, encoding='utf-8', errors='ignore') as f:
             return sum(1 for line in f if line.strip())
+    except Exception:
+        return 0
+
+
+def _count_notebook_code_lines(path):
+    """Count actual code lines across all code cells in a Jupyter notebook."""
+    try:
+        import json as _json
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            nb = _json.load(f)
+        total = 0
+        for cell in nb.get('cells', []):
+            if cell.get('cell_type') != 'code':
+                continue
+            source = cell.get('source', [])
+            if isinstance(source, list):
+                source = ''.join(source)
+            total += sum(1 for line in source.splitlines() if line.strip())
+        return total
     except Exception:
         return 0
 
@@ -146,7 +169,7 @@ def parse_imports_js(content, rel_path):
 
 
 def parse_imports_python(content, rel_path):
-    """Extract import strings from Python content."""
+    """Extract import strings from Python source content."""
     imports = []
     for line in content.splitlines():
         line = line.strip()
@@ -158,6 +181,31 @@ def parse_imports_python(content, rel_path):
         if m:
             for part in m.group(1).split(','):
                 imports.append(part.strip().split()[0])
+    return imports
+
+
+def parse_imports_notebook(path):
+    """Extract import strings from a Jupyter notebook (.ipynb).
+
+    .ipynb files are JSON — the source code lives inside cells[].source
+    (a list of strings or a single string). We extract all code cells,
+    concatenate their source, and run the standard Python import parser.
+    """
+    imports = []
+    try:
+        import json as _json
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            nb = _json.load(f)
+        for cell in nb.get('cells', []):
+            if cell.get('cell_type') != 'code':
+                continue
+            source = cell.get('source', [])
+            if isinstance(source, list):
+                source = ''.join(source)
+            if source.strip():
+                imports.extend(parse_imports_python(source, path))
+    except Exception:
+        pass
     return imports
 
 
@@ -211,7 +259,17 @@ def parse_imports_csharp(content, rel_path):
 
 
 def parse_imports(content, rel_path, language):
-    """Dispatch to the correct import parser based on language."""
+    """Dispatch to the correct import parser based on language and file extension.
+
+    .ipynb files are handled specially — they are JSON blobs and need their
+    own parser regardless of the declared language.
+    """
+    # Jupyter notebooks must be handled by path, not language, because their
+    # content is JSON (not Python source). parse_imports_notebook() reads the
+    # file directly rather than using the pre-read content string.
+    if rel_path.endswith('.ipynb'):
+        return parse_imports_notebook(rel_path)
+
     lang_key = language.lower()
     if lang_key in ('typescript', 'javascript'):
         return parse_imports_js(content, rel_path)
@@ -276,13 +334,17 @@ def build_adjacency(files, language):
     adjacency = {f['rel']: set() for f in files}
 
     for file_meta in files:
-        try:
-            with open(file_meta['path'], encoding='utf-8', errors='ignore') as fh:
-                content = fh.read()
-        except Exception:
-            continue
-
-        imports = parse_imports(content, file_meta['rel'], language)
+        # Jupyter notebooks are JSON — parse_imports_notebook reads the file
+        # directly using the absolute path. Skip the normal content read.
+        if file_meta['rel'].endswith('.ipynb'):
+            imports = parse_imports_notebook(file_meta['path'])
+        else:
+            try:
+                with open(file_meta['path'], encoding='utf-8', errors='ignore') as fh:
+                    content = fh.read()
+            except Exception:
+                continue
+            imports = parse_imports(content, file_meta['rel'], language)
         for imp in imports:
             target = resolve_import(imp, file_meta['rel'], all_rel_paths_set)
             if target and target != file_meta['rel']:
