@@ -42,6 +42,8 @@ def parse_args():
     p.add_argument('--content-dir', required=True, help='Directory with site-content/*.json files')
     p.add_argument('--templates',   required=True, help='Path to templates/ directory')
     p.add_argument('--output',      required=True, help='Output directory')
+    p.add_argument('--graph',       required=False, default=None,
+                   help='Path to graph-data.json produced by build_graph.py (optional)')
     return p.parse_args()
 
 
@@ -117,6 +119,7 @@ def assemble(templates, sections_html, nav_html, search_index_js, analysis, proj
         '{{OVERVIEW}}':        sections_html.get('overview', ''),
         '{{ARCHITECTURE}}':    sections_html.get('architecture', ''),
         '{{MINDMAP}}':         sections_html.get('mindmap', ''),
+        '{{CODE_MAP}}':        sections_html.get('code_map', ''),
         '{{CROSS_CUTTING}}':   sections_html.get('cross_cutting', ''),
         '{{TECH_STACK}}':      sections_html.get('tech_stack', ''),
         '{{ENTRY_POINTS}}':    sections_html.get('entry_points', ''),
@@ -669,6 +672,395 @@ if(typeof d3!=='undefined'){{
 </section>'''
 
 
+def gen_code_map(graph_data, modules_content):
+    """Build interactive Cytoscape.js code dependency map section."""
+    if not graph_data:
+        return ''
+
+    nodes            = graph_data.get('nodes', [])
+    edges            = graph_data.get('edges', [])
+    meta             = graph_data.get('_meta', {})
+    folder_expansions = graph_data.get('folder_expansions', {})
+
+    if not nodes:
+        return ''
+
+    # Build modules lookup: path → simple_explanation
+    mod_lookup = {}
+    if modules_content:
+        mods = modules_content if isinstance(modules_content, list) else []
+        for m in mods:
+            p = m.get('path', '')
+            if p:
+                mod_lookup[p] = m.get('behavior', '') or m.get('simple_explanation', '') or ''
+
+    # Enrich nodes with simple_explanation
+    enriched_nodes = []
+    for n in nodes:
+        nd = dict(n)
+        nd['simple_explanation'] = mod_lookup.get(n.get('fullPath', ''), '')
+        enriched_nodes.append(nd)
+
+    # Role → OKLCH hue map
+    ROLE_HUES = {
+        'service': 262, 'route': 200, 'model': 145, 'utility': 240,
+        'config': 60,   'middleware': 290, 'test': 220, 'migration': 320,
+        'build': 30,    'folder': 50,
+    }
+
+    # Gather distinct roles for filter chips
+    roles = sorted({n.get('role', 'utility') for n in enriched_nodes})
+
+    # Build filter chips HTML
+    chip_items = ''.join(
+        f'<button class="cm-chip" data-role="{e(r)}" style="--chip-hue:{ROLE_HUES.get(r, 240)}" aria-pressed="true">{e(r)}</button>'
+        for r in roles
+    )
+
+    # Build stats bar
+    stats_html = (
+        f'<span class="cm-stat">{meta.get("nodes_in_graph", len(nodes))} nodes</span>'
+        f'<span class="cm-stat">{meta.get("edges_in_graph", len(edges))} edges</span>'
+        f'<span class="cm-stat">{meta.get("total_files_scanned", "?")} files scanned</span>'
+    )
+    if meta.get('files_collapsed_into_folders', 0):
+        stats_html += f'<span class="cm-stat">{meta["files_collapsed_into_folders"]} collapsed into folders</span>'
+
+    # Serialize graph data for inline JS
+    cy_nodes = [
+        {'data': {
+            'id':                 n['id'],
+            'label':              n.get('label', n['id']),
+            'fullPath':           n.get('fullPath', n['id']),
+            'role':               n.get('role', 'utility'),
+            'loc':                n.get('loc', 0),
+            'connectivity':       n.get('connectivity', 0),
+            'tier':               n.get('tier', 'isolated'),
+            'type':               n.get('type', 'file'),
+            'childCount':         n.get('childCount', 0),
+            'simple_explanation': n.get('simple_explanation', ''),
+        }}
+        for n in enriched_nodes
+    ]
+    cy_edges = [
+        {'data': {
+            'id':     f'e-{i}',
+            'source': eg['source'],
+            'target': eg['target'],
+            'weight': eg.get('weight', 1),
+        }}
+        for i, eg in enumerate(edges)
+    ]
+
+    graph_json     = json.dumps({'nodes': cy_nodes, 'edges': cy_edges}, separators=(',', ':'))
+    expansion_json = json.dumps(folder_expansions, separators=(',', ':'))
+    role_hues_json = json.dumps(ROLE_HUES)
+
+    # Inline JS — full Cytoscape init + interactions
+    inline_js = f"""
+(function(){{
+  if(window.CYTOSCAPE_FAILED||typeof cytoscape==='undefined'){{
+    // Fallback: static table
+    var nodes=GRAPH_DATA.nodes.map(function(n){{return n.data;}});
+    nodes.sort(function(a,b){{return b.connectivity-a.connectivity;}});
+    var rows=nodes.slice(0,50).map(function(n){{
+      return '<tr><td>'+n.fullPath+'</td><td>'+n.role+'</td><td>'+n.loc+'</td><td>'+n.connectivity+'</td></tr>';
+    }}).join('');
+    document.getElementById('code-map-fallback').innerHTML=
+      '<table style="width:100%;border-collapse:collapse;font-size:0.8rem"><thead><tr><th>File</th><th>Role</th><th>LOC</th><th>Connections</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    document.getElementById('code-map-canvas-wrap').style.display='none';
+    document.getElementById('code-map-fallback').style.display='block';
+    return;
+  }}
+
+  var ROLE_HUES={role_hues_json};
+  function roleColor(role){{
+    var h=ROLE_HUES[role]||240;
+    return 'oklch(58% 0.18 '+h+')';
+  }}
+  function roleColorSubtle(role){{
+    var h=ROLE_HUES[role]||240;
+    return 'oklch(94% 0.04 '+h+')';
+  }}
+
+  var cy=cytoscape({{
+    container: document.getElementById('code-map-cy'),
+    elements: GRAPH_DATA,
+    style: [
+      {{
+        selector: 'node[type="file"]',
+        style: {{
+          'label': 'data(label)',
+          'width': 'mapData(connectivity, 1, 20, 18, 52)',
+          'height': 'mapData(connectivity, 1, 20, 18, 52)',
+          'background-color': function(ele){{ return roleColor(ele.data('role')); }},
+          'color': 'var(--text-secondary)',
+          'font-size': 9,
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': 4,
+          'text-max-width': 80,
+          'text-wrap': 'ellipsis',
+          'border-width': 0,
+          'border-color': 'transparent',
+          'z-index': 10,
+        }}
+      }},
+      {{
+        selector: 'node[type="folder"]',
+        style: {{
+          'label': 'data(label)',
+          'shape': 'diamond',
+          'width': 'mapData(connectivity, 1, 30, 28, 64)',
+          'height': 'mapData(connectivity, 1, 30, 28, 64)',
+          'background-color': function(ele){{ return roleColor(ele.data('role')); }},
+          'border-width': 2,
+          'border-style': 'dashed',
+          'border-color': function(ele){{ return roleColor(ele.data('role')); }},
+          'opacity': 0.75,
+          'color': 'var(--text-secondary)',
+          'font-size': 9,
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': 4,
+          'z-index': 5,
+        }}
+      }},
+      {{
+        selector: 'edge',
+        style: {{
+          'width': 1,
+          'opacity': 0.35,
+          'line-color': 'var(--text-secondary)',
+          'target-arrow-color': 'var(--text-secondary)',
+          'target-arrow-shape': 'triangle',
+          'arrow-scale': 0.7,
+          'curve-style': 'bezier',
+          'z-index': 1,
+        }}
+      }},
+      {{
+        selector: '.highlighted',
+        style: {{
+          'border-width': 2.5,
+          'border-color': 'oklch(78% 0.18 80)',
+          'opacity': 1,
+          'z-index': 999,
+        }}
+      }},
+      {{
+        selector: '.faded',
+        style: {{ 'opacity': 0.08 }}
+      }},
+      {{
+        selector: '.search-match',
+        style: {{
+          'border-width': 2.5,
+          'border-color': 'oklch(58% 0.22 25)',
+          'opacity': 1,
+          'z-index': 999,
+        }}
+      }},
+    ],
+    layout: {{
+      name: 'cose',
+      nodeRepulsion: 4500,
+      idealEdgeLength: 120,
+      gravity: 0.8,
+      numIter: 1000,
+      animate: true,
+      animationDuration: 600,
+      fit: true,
+      padding: 40,
+    }},
+  }});
+
+  // Tooltip
+  var tooltip=document.getElementById('code-map-tooltip');
+  cy.on('mouseover','node',function(evt){{
+    var n=evt.target.data();
+    var expl=n.simple_explanation?'<p style="margin:4px 0 0;color:var(--text-secondary);font-size:0.78rem">'+n.simple_explanation+'</p>':'';
+    tooltip.innerHTML='<strong style="font-size:0.85rem">'+n.label+'</strong>'
+      +'<br><span style="color:var(--text-secondary);font-size:0.78rem">'+n.fullPath+'</span>'
+      +'<br><span style="font-size:0.78rem">'+n.role+' \u00b7 '+n.loc+' LOC \u00b7 '+n.connectivity+' connections</span>'
+      +expl;
+    tooltip.style.display='block';
+    cy.elements().addClass('faded');
+    evt.target.removeClass('faded').addClass('highlighted');
+    evt.target.neighborhood().removeClass('faded').addClass('highlighted');
+  }});
+  cy.on('mouseout','node',function(){{
+    tooltip.style.display='none';
+    cy.elements().removeClass('faded highlighted');
+  }});
+  document.getElementById('code-map-canvas-wrap').addEventListener('mousemove',function(e){{
+    if(tooltip.style.display==='block'){{
+      tooltip.style.left=(e.offsetX+14)+'px';
+      tooltip.style.top=(e.offsetY+14)+'px';
+    }}
+  }});
+
+  // Click: scroll to module section or expand folder
+  cy.on('tap','node',function(evt){{
+    var n=evt.target.data();
+    if(n.type==='folder'){{
+      var fid='folder:'+n.id.replace(/^folder:/,'');
+      var exp=FOLDER_EXPANSIONS[fid]||FOLDER_EXPANSIONS[n.id];
+      if(!exp)return;
+      var toAdd=[];
+      (exp.nodes||[]).forEach(function(nd){{
+        if(!cy.getElementById(nd.id).length){{
+          toAdd.push({{data:{{id:nd.id,label:nd.label||nd.id.split('/').pop(),fullPath:nd.id,role:nd.role||'utility',loc:nd.loc||0,connectivity:nd.connectivity||0,tier:nd.tier||'isolated',type:'file',childCount:0,simple_explanation:''}}}});
+        }}
+      }});
+      (exp.edges||[]).forEach(function(eg,i){{
+        toAdd.push({{data:{{id:'exp-'+i+'-'+eg.source+'-'+eg.target,source:eg.source,target:eg.target,weight:eg.weight||1}}}});
+      }});
+      if(toAdd.length){{
+        cy.add(toAdd);
+        cy.layout({{name:'cose',animate:true,animationDuration:600,fit:false,padding:40,nodeRepulsion:4500,idealEdgeLength:120}}).run();
+      }}
+    }} else {{
+      var slug=n.fullPath.replace(/[/\\.]/g,'-').toLowerCase();
+      var el=document.getElementById('module-'+slug);
+      if(el)el.scrollIntoView({{behavior:'smooth'}});
+    }}
+  }});
+
+  // Search (debounced 200ms)
+  var searchTimer;
+  document.getElementById('cm-search').addEventListener('input',function(){{
+    clearTimeout(searchTimer);
+    var q=this.value.trim().toLowerCase();
+    searchTimer=setTimeout(function(){{
+      cy.elements().removeClass('search-match faded');
+      if(!q)return;
+      cy.nodes().forEach(function(n){{
+        var match=n.data('label').toLowerCase().includes(q)||n.data('fullPath').toLowerCase().includes(q);
+        if(match)n.addClass('search-match');
+        else n.addClass('faded');
+      }});
+    }},200);
+  }});
+
+  // Filter chips
+  var activeRoles=new Set({json.dumps(roles)});
+  document.querySelectorAll('.cm-chip').forEach(function(chip){{
+    chip.addEventListener('click',function(){{
+      var role=this.dataset.role;
+      var pressed=this.getAttribute('aria-pressed')==='true';
+      if(pressed){{
+        activeRoles.delete(role);
+        this.setAttribute('aria-pressed','false');
+        this.style.opacity='0.4';
+      }}else{{
+        activeRoles.add(role);
+        this.setAttribute('aria-pressed','true');
+        this.style.opacity='1';
+      }}
+      cy.nodes().forEach(function(n){{
+        if(activeRoles.has(n.data('role')))n.removeClass('faded');
+        else n.addClass('faded');
+      }});
+    }});
+  }});
+
+  // Layout toggle
+  var layoutMode='cose';
+  document.getElementById('cm-layout-toggle').addEventListener('click',function(){{
+    layoutMode=layoutMode==='cose'?'breadthfirst':'cose';
+    this.textContent=layoutMode==='cose'?'Switch to Grid':'Switch to Force';
+    var opts=layoutMode==='cose'
+      ?{{name:'cose',animate:true,nodeRepulsion:4500,idealEdgeLength:120,gravity:0.8,numIter:1000}}
+      :{{name:'breadthfirst',animate:true,spacingFactor:1.5}};
+    cy.layout(opts).run();
+  }});
+
+  // Fit button
+  document.getElementById('cm-fit').addEventListener('click',function(){{ cy.fit(40); }});
+
+  // Fullscreen
+  var wrap=document.getElementById('code-map-canvas-wrap');
+  document.getElementById('cm-fullscreen').addEventListener('click',function(){{
+    wrap.classList.toggle('cm-fullscreen-mode');
+    var isFs=wrap.classList.contains('cm-fullscreen-mode');
+    this.textContent=isFs?'Exit Fullscreen':'Fullscreen';
+    setTimeout(function(){{ cy.fit(40); }},200);
+  }});
+  document.addEventListener('keydown',function(e){{
+    if(e.key==='Escape'){{
+      wrap.classList.remove('cm-fullscreen-mode');
+      document.getElementById('cm-fullscreen').textContent='Fullscreen';
+      setTimeout(function(){{cy.fit(40);}},200);
+    }}
+  }});
+
+}})();
+"""
+
+    # Legend items HTML
+    legend_items = ''.join(
+        f'<span class="cm-legend-item"><span class="cm-legend-dot" style="background:oklch(58% 0.18 {ROLE_HUES.get(r, 240)}deg)"></span>{e(r)}</span>'
+        for r in roles
+    )
+
+    return f'''<section class="section" id="code-map">
+  <p class="section-label">Code Map</p>
+  <h2 class="section-title">Dependency Graph</h2>
+  <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem">
+    Every important file is a node. Every import is an edge. Hover to inspect, click a file to jump to its module doc, click a folder node to expand it.
+  </p>
+
+  <!-- Controls bar -->
+  <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
+    <input id="cm-search" type="search" placeholder="Search files..." aria-label="Search code map nodes"
+      style="flex:1;min-width:140px;max-width:220px;padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.82rem;background:var(--surface);color:var(--text-primary)">
+    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center">{chip_items}</div>
+    <div style="margin-left:auto;display:flex;gap:0.4rem">
+      <button id="cm-layout-toggle" class="cm-ctrl-btn" title="Toggle layout algorithm">Switch to Grid</button>
+      <button id="cm-fit" class="cm-ctrl-btn" title="Fit graph to viewport">Fit</button>
+      <button id="cm-fullscreen" class="cm-ctrl-btn" title="Toggle fullscreen (Esc to exit)">Fullscreen</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-bottom:0.75rem;font-size:0.78rem;color:var(--text-secondary)">{stats_html}</div>
+
+  <!-- Canvas wrapper -->
+  <div id="code-map-canvas-wrap" style="position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div id="code-map-cy" style="width:100%;height:480px;background:var(--surface)"></div>
+    <div id="code-map-tooltip" style="display:none;position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.75rem;max-width:280px;pointer-events:none;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.15)"></div>
+  </div>
+
+  <!-- Fallback for no Cytoscape -->
+  <div id="code-map-fallback" style="display:none"></div>
+
+  <!-- Legend -->
+  <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem;font-size:0.78rem;color:var(--text-secondary);align-items:center">
+    <span style="font-weight:500">Roles:</span>{legend_items}
+    <span style="margin-left:0.5rem">&#9670; = folder node (click to expand)</span>
+  </div>
+
+  <style>
+    .cm-chip{{padding:0.2rem 0.55rem;border:1.5px solid oklch(58% 0.18 calc(var(--chip-hue)*1deg));border-radius:999px;font-size:0.75rem;background:transparent;color:var(--text-primary);cursor:pointer;transition:opacity 0.15s}}
+    .cm-ctrl-btn{{padding:0.25rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.78rem;background:var(--surface);color:var(--text-primary);cursor:pointer}}
+    .cm-ctrl-btn:hover{{background:var(--surface-hover,var(--surface));border-color:var(--accent)}}
+    .cm-legend-item{{display:inline-flex;align-items:center;gap:0.3rem}}
+    .cm-legend-dot{{width:10px;height:10px;border-radius:50%;flex-shrink:0}}
+    .cm-stat::after{{content:" |";margin-left:0.4rem;color:var(--border)}}
+    .cm-stat:last-child::after{{content:""}}
+    #code-map-canvas-wrap.cm-fullscreen-mode{{position:fixed;inset:0;z-index:9999;border-radius:0;border:none;height:100vh!important}}
+    #code-map-canvas-wrap.cm-fullscreen-mode #code-map-cy{{height:100vh!important}}
+  </style>
+
+  <script>
+    var GRAPH_DATA={graph_json};
+    var FOLDER_EXPANSIONS={expansion_json};
+    {inline_js}
+  </script>
+</section>'''
+
+
 def gen_cookbook(data):
     if not data:
         return ''
@@ -849,12 +1241,13 @@ def build_search_index(content):
     return json.dumps(entries)
 
 
-def build_navigation(content, has_mindmap=False):
+def build_navigation(content, has_mindmap=False, has_codemap=False):
     """Generate sidebar navigation HTML."""
     SECTION_MAP = [
         ('overview',       'overview',       'Overview'),
         ('architecture',   'architecture',   'Architecture'),
         ('mindmap',        'codebase-map',   'Codebase Map'),
+        ('code_map',       'code-map',       'Code Map'),
         ('cross_cutting',  'cross-cutting',  'Cross-Cutting Concerns'),
         ('tech_stack',     'tech-stack',     'Tech Stack'),
         ('entry_points',   'entry-points',   'Entry Points'),
@@ -869,7 +1262,11 @@ def build_navigation(content, has_mindmap=False):
     nav = ''
     seen = set()
     for key, anchor, label in SECTION_MAP:
-        auto_show = key in ('glossary_getting_started',) or (key == 'mindmap' and has_mindmap)
+        auto_show = (
+            key in ('glossary_getting_started',)
+            or (key == 'mindmap' and has_mindmap)
+            or (key == 'code_map' and has_codemap)
+        )
         if key in content or auto_show:
             if anchor in seen:
                 continue
@@ -1067,12 +1464,16 @@ def main():
 
     project_name = (analysis.get('meta') or {}).get('name', 'Project')
 
+    # Load optional graph data
+    graph_data = load_json(args.graph) if args.graph else None
+
     # Generate per-section HTML
     mindmap_html = gen_mindmap(analysis)
     sections_html = {
         'overview':       gen_overview(content.get('overview')),
         'architecture':   gen_architecture(content.get('architecture')),
         'mindmap':        mindmap_html,
+        'code_map':       gen_code_map(graph_data, content.get('modules')),
         'cross_cutting':  gen_cross_cutting(content.get('cross_cutting')),
         'tech_stack':     gen_tech_stack(content.get('tech_stack')),
         'entry_points':   gen_entry_points(content.get('entry_points')),
@@ -1085,7 +1486,7 @@ def main():
     }
 
     # Build navigation + search index
-    nav_html = build_navigation(content, has_mindmap=bool(mindmap_html))
+    nav_html = build_navigation(content, has_mindmap=bool(mindmap_html), has_codemap=bool(graph_data))
     search_index_js = build_search_index(content)
 
     # Assemble
