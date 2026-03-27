@@ -1,6 +1,6 @@
 {
   "name": "tldr-skill",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "description": "TLDR – Turn any repo into an interactive codebase tour. A Claude Code skill. Too Long, Didn't Read? Now you don't have to.",
   "bin": {
     "tldr-skill": "./bin/install.js"
@@ -27,7 +27,7 @@
     "tldr",
     "repo-tour"
   ],
-  "author": "upayan",
+  "author": "upayan <upayan1231@gmail.com>",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
