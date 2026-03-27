@@ -27,12 +27,37 @@ LANGUAGE_COLORS = {
 }
 
 # Typography pairings keyed by project name hash mod 4
-# Index 0 = Geist (primary, purpose-built for dev tools)
+# Each tuple: (heading_family_query, body_family_query, heading_css_name, body_css_name)
+# JetBrains Mono is appended to every URL automatically in get_font_pairing().
 FONT_PAIRINGS = [
-    ('Geist:wght@300..700&family=Geist+Mono:wght@300..600', 'Geist', 'Geist', 'Geist'),
-    ('Playfair+Display:wght@400;600;700', 'Outfit:wght@300;400;500;600', 'Playfair Display', 'Outfit'),
-    ('Syne:wght@400;600;700;800', 'Inter:wght@300;400;500', 'Syne', 'Inter'),
-    ('Cormorant:ital,wght@0,400;0,600;0,700;1,400', 'Plus+Jakarta+Sans:wght@300;400;500;600', 'Cormorant', 'Plus Jakarta Sans'),
+    # 0: Fraunces (warm optical serif) + Figtree (rounded humanist sans)
+    (
+        'Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300',
+        'Figtree:wght@300;400;500;600',
+        'Fraunces',
+        'Figtree',
+    ),
+    # 1: DM Serif Display + DM Sans — Google's own refined editorial pair
+    (
+        'DM+Serif+Display:ital@0;1',
+        'DM+Sans:ital,opsz,wght@0,9..40,300..600;1,9..40,300',
+        'DM Serif Display',
+        'DM Sans',
+    ),
+    # 2: Instrument Serif + Instrument Sans — contemporary, clean, Figma-ish
+    (
+        'Instrument+Serif:ital@0;1',
+        'Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400',
+        'Instrument Serif',
+        'Instrument Sans',
+    ),
+    # 3: Libre Baskerville + Jost — scholarly warmth + clean geometric
+    (
+        'Libre+Baskerville:ital,wght@0,400;0,700;1,400',
+        'Jost:ital,wght@0,300;0,400;0,500;0,600;1,400',
+        'Libre Baskerville',
+        'Jost',
+    ),
 ]
 
 
@@ -94,7 +119,13 @@ def load_all_content(content_dir):
 def get_font_pairing(project_name):
     idx = sum(ord(c) for c in project_name) % len(FONT_PAIRINGS)
     pair = FONT_PAIRINGS[idx]
-    url = f'https://fonts.googleapis.com/css2?family={pair[0]}&family={pair[1]}&display=swap'
+    url = (
+        'https://fonts.googleapis.com/css2'
+        f'?family={pair[0]}'
+        f'&family={pair[1]}'
+        '&family=JetBrains+Mono:wght@400;500'
+        '&display=swap'
+    )
     return url, pair[2], pair[3]
 
 
@@ -482,189 +513,154 @@ def gen_mindmap(analysis):
     return f'''<section class="section" id="codebase-map">
   <p class="section-label">Codebase Map</p>
   <h2 class="section-title">Directory structure</h2>
-  <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1rem">{e(stats + stats_suffix)}click folders to expand · scroll to zoom · drag to pan</p>
-  <div id="mm-wrap" style="position:relative;width:100%;height:600px;border-radius:12px;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border-subtle)">
-    <svg id="mm-svg" style="width:100%;height:100%"></svg>
-    <div id="mm-fallback" style="display:none;padding:1.5rem">
-      <p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.5rem">Top-level directories:</p>
-      <ul style="font-size:0.875rem;color:var(--text-secondary)">{fallback_items}</ul>
+  <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:1.25rem">{e(stats + stats_suffix)}click any folder to expand or collapse</p>
+  <div style="border-radius:14px;border:1px solid var(--border-subtle);overflow:hidden;background:var(--bg-surface)">
+    <!-- Toolbar -->
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.875rem 1.125rem;border-bottom:1px solid var(--border-subtle)">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" style="flex-shrink:0;color:var(--accent)">
+        <path d="M2 5a2 2 0 012-2h3.586a1 1 0 01.707.293L9.707 4.707A1 1 0 0010.414 5H16a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V5z" fill="currentColor" opacity="0.9"/>
+      </svg>
+      <span style="font-size:0.9rem;font-weight:600;color:var(--text-primary)">{e(project_name)}</span>
+      <span style="font-size:0.78rem;color:var(--text-tertiary,var(--text-secondary))">{e(stats)}</span>
+      <div style="margin-left:auto;display:flex;gap:0.5rem">
+        <button onclick="mmExpandAll()" style="background:transparent;border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:7px;padding:0.3rem 0.75rem;font-size:0.75rem;cursor:pointer;transition:all 0.15s;font-family:inherit" onmouseover="this.style.background='var(--bg-elevated,var(--bg-page))'" onmouseout="this.style.background='transparent'">Expand all</button>
+        <button onclick="mmCollapseAll()" style="background:transparent;border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:7px;padding:0.3rem 0.75rem;font-size:0.75rem;cursor:pointer;transition:all 0.15s;font-family:inherit" onmouseover="this.style.background='var(--bg-elevated,var(--bg-page))'" onmouseout="this.style.background='transparent'">Collapse</button>
+      </div>
     </div>
-    <div style="position:absolute;bottom:0.75rem;right:0.75rem;display:flex;gap:0.4rem">
-      <button onclick="mmReset()" style="background:var(--bg-page);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Reset</button>
-      <button onclick="mmExpand()" style="background:var(--bg-page);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Expand All</button>
-      <button onclick="mmCollapse()" style="background:var(--bg-page);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.72rem;cursor:pointer;line-height:1.4">Collapse</button>
+    <!-- Tree -->
+    <div id="mm-tree" style="max-height:520px;overflow-y:auto;padding:0.5rem 0.5rem"></div>
+    <div id="mm-fallback" style="display:none;padding:1.5rem">
+      <ul style="font-size:0.875rem;color:var(--text-secondary);padding-left:1.25rem">{fallback_items}</ul>
     </div>
   </div>
+  <style>
+.mm-folder-row{{display:flex;align-items:center;gap:0;padding:0.28rem 0.625rem;border-radius:8px;cursor:pointer;user-select:none;transition:background 0.13s;}}
+.mm-folder-row:hover{{background:var(--bg-page)}}
+.mm-file-row{{display:flex;align-items:center;gap:0;padding:0.22rem 0.625rem;border-radius:6px;cursor:default;}}
+.mm-file-row:hover{{background:var(--bg-page)}}
+.mm-chevron{{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-right:4px;flex-shrink:0;transition:transform 0.18s cubic-bezier(0.4,0,0.2,1);color:var(--text-secondary);opacity:0.6}}
+.mm-chevron svg{{width:10px;height:10px}}
+.mm-children{{overflow:hidden;transition:max-height 0.22s cubic-bezier(0.4,0,0.2,1),opacity 0.18s;}}
+.mm-ext-badge{{font-size:0.65rem;font-weight:500;padding:1px 6px;border-radius:4px;margin-left:auto;flex-shrink:0;letter-spacing:0.02em;opacity:0.8}}
+  </style>
   <script>
 (function(){{
 var TREE={tree_json};
-var W=960,H=960;
-// File extension → color (OKLCH)
 var EC={{
-  ts:'oklch(58% 0.20 250)',tsx:'oklch(58% 0.20 250)',
-  js:'oklch(72% 0.18 90)',jsx:'oklch(72% 0.18 90)',mjs:'oklch(72% 0.18 90)',cjs:'oklch(72% 0.18 90)',
-  py:'oklch(65% 0.18 145)',
-  cs:'oklch(60% 0.20 290)',
-  java:'oklch(60% 0.20 25)',kt:'oklch(60% 0.18 300)',
-  go:'oklch(65% 0.18 200)',
-  rs:'oklch(65% 0.20 35)',
-  rb:'oklch(60% 0.20 10)',php:'oklch(60% 0.18 270)',
-  html:'oklch(62% 0.16 25)',css:'oklch(58% 0.18 260)',scss:'oklch(60% 0.16 320)',sass:'oklch(60% 0.16 320)',
-  json:'oklch(58% 0.10 200)',yaml:'oklch(60% 0.12 60)',yml:'oklch(60% 0.12 60)',toml:'oklch(60% 0.12 50)',
-  md:'oklch(56% 0.09 145)',mdx:'oklch(56% 0.09 145)',
-  vue:'oklch(62% 0.18 155)',svelte:'oklch(62% 0.20 20)',
-  dart:'oklch(60% 0.18 210)',swift:'oklch(62% 0.20 30)',
-  sql:'oklch(60% 0.15 230)',
-  sh:'oklch(58% 0.14 140)',bash:'oklch(58% 0.14 140)',
-  _dir:'oklch(52% 0.08 240)',
-  _root:'oklch(54% 0.22 262)'
+  ts:'#3b82f6',tsx:'#3b82f6',
+  js:'#f59e0b',jsx:'#f59e0b',mjs:'#f59e0b',cjs:'#f59e0b',
+  py:'#10b981',
+  cs:'#8b5cf6',
+  java:'#f97316',kt:'#a855f7',
+  go:'#06b6d4',
+  rs:'#ef4444',
+  rb:'#e11d48',php:'#6366f1',
+  html:'#f97316',css:'#38bdf8',scss:'#ec4899',sass:'#ec4899',
+  json:'#64748b',yaml:'#84cc16',yml:'#84cc16',toml:'#84cc16',
+  md:'#6b7280',mdx:'#6b7280',
+  vue:'#22c55e',svelte:'#f97316',
+  dart:'#06b6d4',swift:'#f97316',
+  sql:'#6366f1',
+  sh:'#10b981',bash:'#10b981',lock:'#9ca3af',
+  gitignore:'#9ca3af',env:'#f59e0b'
 }};
-function nodeColor(d){{
-  if(!d||!d.data)return EC._dir;
-  if(d.data.type==='root')return EC._root;
-  if(d.data.type==='dir')return EC._dir;
-  return EC[d.data.ext||'']||'oklch(52% 0.07 240)';
+function ec(ext){{return EC[ext||'']||'#9ca3af';}}
+
+// Folder SVG icon
+var FOLDER_SVG='<svg width="16" height="16" viewBox="0 0 20 20" fill="none" style="flex-shrink:0;margin-right:6px"><path d="M2 6a2 2 0 012-2h3.172a2 2 0 011.414.586l.828.828A2 2 0 0010.828 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" fill="%s" opacity="0.85"/></svg>';
+var FILE_SVG='<svg width="14" height="14" viewBox="0 0 20 20" fill="none" style="flex-shrink:0;margin-right:7px"><path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" fill="%s" opacity="0.75"/></svg>';
+
+function folderColor(depth){{
+  var palette=['#f59e0b','#3b82f6','#10b981','#8b5cf6','#f97316'];
+  return palette[depth%palette.length];
 }}
-function trav(d,fn){{fn(d);(d.children||d._ch||[]).forEach(function(c){{trav(c,fn);}});}}
-function init(){{
-  if(typeof d3==='undefined'){{
-    document.getElementById('mm-fallback').style.display='block';
-    document.getElementById('mm-svg').style.display='none';
-    return;
+
+function buildHTML(node,depth){{
+  if(node.type==='root'){{
+    return(node.children||[]).map(function(c){{return buildHTML(c,0);}}).join('');
   }}
-  var R=Math.min(W,H)/2-115;
-  var svg=d3.select('#mm-svg').attr('viewBox',[-W/2,-H/2,W,H]);
-  var zb=d3.zoom().scaleExtent([0.12,5]).on('zoom',function(ev){{g.attr('transform',ev.transform);}});
-  svg.call(zb);
-  var g=svg.append('g');
-  var gL=g.append('g').attr('fill','none').attr('stroke-width',1.1);
-  var gN=g.append('g').attr('cursor','pointer');
-  var tl=d3.tree()
-    .size([2*Math.PI,R])
-    .separation(function(a,b){{return(a.parent===b.parent?1:2)/a.depth;}});
-  var root=d3.hierarchy(TREE);
-  var uid=0;
-  // Store children, collapse depth > 1 (top-level dirs visible, contents hidden)
-  root.each(function(d){{
-    d.id=uid++;
-    d._ch=d.children?d.children.slice():null;
-    if(d.depth>1)d.children=null;
-  }});
-  root.x0=0; root.y0=0;
-  function pt(x,y){{var a=x-Math.PI/2;return[y*Math.cos(a),y*Math.sin(a)];}}
-  function upd(src){{
-    tl(root);
-    var dur=380;
-    var nodes=root.descendants().reverse();
-    var links=root.links();
-    // ── Links ─────────────────────────────────────────────────────────
-    var lk=gL.selectAll('path.mml').data(links,function(d){{return d.target.id;}});
-    var le=lk.enter().append('path').attr('class','mml')
-      .attr('d',function(){{var p=pt(src.x0||0,src.y0||0);return'M'+p+'L'+p;}});
-    lk.merge(le).transition().duration(dur).ease(d3.easeCubicInOut)
-      .attr('stroke',function(d){{return nodeColor(d.target);}})
-      .attr('stroke-opacity',function(d){{return d.target.data.type==='file'?0.30:0.50;}})
-      .attr('d',function(d){{
-        return d3.linkRadial()
-          .angle(function(n){{return n.x;}})
-          .radius(function(n){{return n.y;}})(d);
-      }});
-    lk.exit().transition().duration(dur)
-      .attr('d',function(){{var p=pt(src.x||0,src.y||0);return'M'+p+'L'+p;}})
-      .remove();
-    // ── Nodes ─────────────────────────────────────────────────────────
-    var nd=gN.selectAll('g.mmn').data(nodes,function(d){{return d.id;}});
-    var ne=nd.enter().append('g').attr('class','mmn')
-      .attr('transform',function(){{var p=pt(src.x0||0,src.y0||0);return'translate('+p+')';}} )
-      .attr('opacity',0)
-      .on('click',function(ev,d){{
-        ev.stopPropagation();
-        if(d._ch){{d.children=d.children?null:d._ch;upd(d);}}
-      }});
-    ne.append('title');    // tooltip showing full name
-    ne.append('circle');
-    ne.append('text').attr('class','mmt');
-    var nm=nd.merge(ne);
-    // Update tooltip
-    nm.select('title').text(function(d){{return d.data.name;}});
-    nm.transition().duration(dur).ease(d3.easeCubicInOut)
-      .attr('transform',function(d){{var p=pt(d.x,d.y);return'translate('+p+')';}} )
-      .attr('opacity',1);
-    nm.select('circle').transition().duration(dur)
-      .attr('r',function(d){{
-        if(d.depth===0)return 13;
-        if(d.data.type==='dir')return d._ch?6.5:5;
-        return 3;
-      }})
-      .attr('fill',function(d){{
-        if(d.depth===0||d.children)return nodeColor(d);
-        if(d._ch)return nodeColor(d);          // collapsed dir or file
-        return d.data.type==='file'?'transparent':nodeColor(d);
-      }})
-      .attr('stroke',nodeColor)
-      .attr('stroke-width',function(d){{return d.depth===0?0:1.5;}})
-      .attr('fill-opacity',function(d){{return d.data.type==='file'&&!d._ch?0.6:1;}});
-    nm.select('text.mmt')
-      .attr('dy','0.32em')
-      .attr('x',function(d){{
-        if(d.depth===0)return 0;
-        var r=d.data.type==='dir'?9:7;
-        return(d.x<Math.PI)?r:-r;
-      }})
-      .attr('text-anchor',function(d){{
-        if(d.depth===0)return'middle';
-        return(d.x<Math.PI)?'start':'end';
-      }})
-      .attr('transform',function(d){{
-        if(d.depth===0)return null;
-        return(d.x>=Math.PI)?'rotate(180)':null;
-      }})
-      .attr('font-size',function(d){{
-        if(d.depth===0)return'13px';
-        if(d.data.type==='dir')return'10.5px';
-        return'9px';
-      }})
-      .attr('font-weight',function(d){{return d.data.type==='file'?'400':'600';}})
-      .attr('fill',function(d){{
-        return d.data.type==='file'?'var(--text-secondary)':'var(--text-primary)';
-      }})
-      .text(function(d){{
-        var n=d.data.name||'';
-        // Show trailing slash for dirs to make them obvious
-        var suffix=(d.data.type==='dir'&&d.depth>0)?'/':'';
-        var label=n+suffix;
-        return label.length>28?label.slice(0,26)+'\u2026':label;
-      }});
-    nd.exit().transition().duration(dur)
-      .attr('transform',function(){{var p=pt(src.x||0,src.y||0);return'translate('+p+')';}} )
-      .attr('opacity',0).remove();
-    root.each(function(d){{d.x0=d.x;d.y0=d.y;}});
+  var pl=depth*20+8;
+  if(node.type==='dir'){{
+    var kids=(node.children||[]).map(function(c){{return buildHTML(c,depth+1);}}).join('');
+    var fc=folderColor(depth);
+    var ficon=FOLDER_SVG.replace('%s',encodeURIComponent(fc));
+    var cnt=(node.children||[]).length||(node._count||0);
+    var cntBadge=cnt?'<span style="font-size:0.68rem;color:var(--text-secondary);margin-left:6px;opacity:0.55">'+cnt+'</span>':'';
+    return '<div class="mm-dir-wrap">'
+      +'<div class="mm-folder-row" style="padding-left:'+pl+'px" onclick="mmToggle(this.parentElement)">'
+      +'<span class="mm-chevron"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M3 2l4 3-4 3V2z"/></svg></span>'
+      +ficon
+      +'<span style="font-size:0.875rem;font-weight:500;color:var(--text-primary)">'+node.name+'</span>'
+      +cntBadge
+      +'</div>'
+      +'<div class="mm-children">'+kids+'</div>'
+      +'</div>';
   }}
-  upd(root);
-  window.mmReset=function(){{svg.transition().duration(350).call(zb.transform,d3.zoomIdentity);}};
-  window.mmExpand=function(){{trav(root,function(d){{if(d._ch)d.children=d._ch;}});upd(root);}};
-  window.mmCollapse=function(){{
-    trav(root,function(d){{if(d.depth>1&&d._ch)d.children=null;}});
-    upd(root);
-  }};
-  // Re-apply text color on theme toggle
-  new MutationObserver(function(){{
-    gN.selectAll('text.mmt').attr('fill',function(d){{
-      return d&&d.data&&d.data.type==='file'?'var(--text-secondary)':'var(--text-primary)';
+  // file
+  var color=ec(node.ext);
+  var ficon=FILE_SVG.replace('%s',encodeURIComponent(color));
+  var badge=node.ext?'<span class="mm-ext-badge" style="color:'+color+';background:'+color+'1a">'+node.ext+'</span>':'';
+  return '<div class="mm-file-row" style="padding-left:'+(pl+20)+'px">'
+    +ficon
+    +'<span style="font-size:0.84rem;color:var(--text-secondary)">'+node.name+'</span>'
+    +badge
+    +'</div>';
+}}
+
+function mmToggle(wrap){{
+  var ch=wrap.querySelector('.mm-children');
+  var chevron=wrap.querySelector('.mm-chevron');
+  if(!ch)return;
+  var open=ch.dataset.open==='1';
+  if(open){{
+    ch.style.maxHeight='0px';ch.style.opacity='0';
+    ch.dataset.open='0';
+    if(chevron)chevron.style.transform='';
+  }}else{{
+    ch.style.maxHeight=ch.scrollHeight+'px';ch.style.opacity='1';
+    ch.dataset.open='1';
+    if(chevron)chevron.style.transform='rotate(90deg)';
+    // After transition expand to auto so content can grow further
+    ch.addEventListener('transitionend',function h(){{
+      if(ch.dataset.open==='1')ch.style.maxHeight='none';
+      ch.removeEventListener('transitionend',h);
     }});
-  }}).observe(document.documentElement,{{attributes:true,attributeFilter:['data-theme']}});
+  }}
 }}
-if(typeof d3!=='undefined'){{
-  init();
-}}else{{
-  var ds=document.querySelector('script[src*="d3"]');
-  if(ds){{ds.addEventListener('load',init);}}
-  setTimeout(function(){{
-    if(typeof d3==='undefined'){{
-      document.getElementById('mm-fallback').style.display='block';
-      document.getElementById('mm-svg').style.display='none';
+
+window.mmExpandAll=function(){{
+  document.querySelectorAll('#mm-tree .mm-children').forEach(function(el){{
+    el.style.maxHeight='none';el.style.opacity='1';el.dataset.open='1';
+  }});
+  document.querySelectorAll('#mm-tree .mm-chevron').forEach(function(el){{
+    el.style.transform='rotate(90deg)';
+  }});
+}};
+window.mmCollapseAll=function(){{
+  document.querySelectorAll('#mm-tree .mm-children').forEach(function(el){{
+    // Keep depth-0 open
+    var row=el.previousElementSibling;
+    if(row){{
+      var pad=parseInt(row.style.paddingLeft||0);
+      if(pad>8){{el.style.maxHeight='0px';el.style.opacity='0';el.dataset.open='0';}}
     }}
-  }},5000);
+  }});
+  document.querySelectorAll('#mm-tree .mm-chevron').forEach(function(el){{
+    var row=el.closest('.mm-folder-row');
+    if(row&&parseInt(row.style.paddingLeft||0)>8)el.style.transform='';
+  }});
+}};
+
+var container=document.getElementById('mm-tree');
+if(container){{
+  container.innerHTML=buildHTML(TREE,0);
+  // Open depth-0 directories by default
+  container.querySelectorAll(':scope>.mm-dir-wrap').forEach(function(wrap){{
+    var ch=wrap.querySelector('.mm-children');
+    var chevron=wrap.querySelector('.mm-chevron');
+    if(ch){{ch.style.maxHeight='none';ch.style.opacity='1';ch.dataset.open='1';}}
+    if(chevron)chevron.style.transform='rotate(90deg)';
+  }});
 }}
 }})();
   </script>
@@ -700,25 +696,25 @@ def gen_code_map(graph_data, modules_content):
         nd['simple_explanation'] = mod_lookup.get(n.get('fullPath', ''), '')
         enriched_nodes.append(nd)
 
-    # Role → OKLCH color strings (exact Obsidian-style palette)
+    # Obsidian-style node colors — warm purples as base, hue shifts per role
     ROLE_COLORS = {
-        'service':    'oklch(68% 0.20 262)',
-        'route':      'oklch(68% 0.18 200)',
-        'model':      'oklch(68% 0.18 145)',
-        'utility':    'oklch(62% 0.12 240)',
-        'config':     'oklch(72% 0.18 60)',
-        'middleware': 'oklch(68% 0.18 290)',
-        'test':       'oklch(58% 0.08 240)',
-        'migration':  'oklch(65% 0.16 320)',
-        'build':      'oklch(68% 0.18 30)',
-        'folder':     'oklch(75% 0.14 50)',
-        'default':    'oklch(62% 0.10 240)',
+        'service':    '#7c6fcd',   # Obsidian signature purple
+        'route':      '#6fa3d4',   # cool blue (entry paths)
+        'model':      '#6fcd99',   # soft green (data)
+        'utility':    '#9e8ecf',   # muted lavender
+        'config':     '#c9b86c',   # warm gold (settings)
+        'middleware': '#a06fcd',   # deeper purple (cross-cutting)
+        'test':       '#6f8fcd',   # steel blue (test files)
+        'migration':  '#cd6fa8',   # rose-purple (data changes)
+        'build':      '#cd9a6f',   # warm amber (tooling)
+        'folder':     '#b0a0e8',   # soft lavender (folder nodes)
+        'default':    '#8c8cb0',   # neutral purple-gray
     }
-    # Also keep hues for chip borders
+    # Also keep hues for chip borders (approx degrees)
     ROLE_HUES = {
-        'service': 262, 'route': 200, 'model': 145, 'utility': 240,
-        'config': 60,   'middleware': 290, 'test': 240, 'migration': 320,
-        'build': 30,    'folder': 50,
+        'service': 262, 'route': 210, 'model': 155, 'utility': 265,
+        'config': 50,   'middleware': 280, 'test': 220, 'migration': 320,
+        'build': 30,    'folder': 255,
     }
 
     # Gather distinct roles for filter chips
@@ -744,7 +740,7 @@ def gen_code_map(graph_data, modules_content):
 
     # Serialize graph data for inline JS (flat arrays, no Cytoscape wrapper)
     d3_nodes = [
-        {{
+        {
             'id':                 n['id'],
             'label':              n.get('label', n['id']),
             'fullPath':           n.get('fullPath', n['id']),
@@ -755,20 +751,20 @@ def gen_code_map(graph_data, modules_content):
             'type':               n.get('type', 'file'),
             'childCount':         n.get('childCount', 0),
             'simple_explanation': n.get('simple_explanation', ''),
-        }}
+        }
         for n in enriched_nodes
     ]
     d3_edges = [
-        {{
-            'id':     f'e-{{i}}',
+        {
+            'id':     f'e-{i}',
             'source': eg['source'],
             'target': eg['target'],
             'weight': eg.get('weight', 1),
-        }}
+        }
         for i, eg in enumerate(edges)
     ]
 
-    graph_json     = json.dumps({{'nodes': d3_nodes, 'edges': d3_edges}}, separators=(',', ':'))
+    graph_json     = json.dumps({'nodes': d3_nodes, 'edges': d3_edges}, separators=(',', ':'))
     expansion_json = json.dumps(folder_expansions, separators=(',', ':'))
     role_colors_json = json.dumps(ROLE_COLORS)
     roles_json     = json.dumps(roles)
@@ -796,10 +792,9 @@ function cmInit(){{
   if(_cmInitDone)return;
   if(window.D3_FAILED){{cmShowFallback();return;}}
   if(typeof d3==='undefined'){{
-    // D3 not yet loaded — wait for it (CDN script is at end of body)
-    var ds=document.querySelector('script[src*="d3"]');
-    if(ds){{ds.addEventListener('load',cmInit);}}
-    setTimeout(function(){{if(typeof d3==='undefined'){{cmShowFallback();}}  }},6000);
+    // D3 <script> is at end of body — not yet in DOM when this runs.
+    // window 'load' fires after all body scripts have executed, so d3 is guaranteed available.
+    window.addEventListener('load',cmInit);
     return;
   }}
   _cmInitDone=true;
@@ -826,21 +821,30 @@ function cmInit(){{
   var W=wrap.clientWidth||900;
   var H=620;
 
-  // SVG defs: glow filter
+  // SVG defs: soft halo glow (Obsidian-style — subtle, not harsh)
   var defs=svg.select('defs');
+  // Resting glow — soft halo at low opacity
   defs.append('filter')
     .attr('id','node-glow')
-    .attr('x','-50%').attr('y','-50%')
-    .attr('width','200%').attr('height','200%')
-    .html('<feGaussianBlur stdDeviation="3" result="coloredBlur"/>'
-      +'<feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>');
-
+    .attr('x','-60%').attr('y','-60%')
+    .attr('width','220%').attr('height','220%')
+    .html('<feGaussianBlur in="SourceGraphic" stdDeviation="2.8" result="blur"/>'
+      +'<feColorMatrix in="blur" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0.42 0" result="softBlur"/>'
+      +'<feMerge>'
+      +'<feMergeNode in="softBlur"/>'
+      +'<feMergeNode in="SourceGraphic"/>'
+      +'</feMerge>');
+  // Hover glow — slightly wider halo, still controlled
   defs.append('filter')
     .attr('id','node-glow-hover')
     .attr('x','-80%').attr('y','-80%')
     .attr('width','260%').attr('height','260%')
-    .html('<feGaussianBlur stdDeviation="6" result="coloredBlur"/>'
-      +'<feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>');
+    .html('<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>'
+      +'<feColorMatrix in="blur" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0.65 0" result="softBlur"/>'
+      +'<feMerge>'
+      +'<feMergeNode in="softBlur"/>'
+      +'<feMergeNode in="SourceGraphic"/>'
+      +'</feMerge>');
 
   // Zoom container
   var zoomG=svg.append('g').attr('class','cm-zoom-root');
@@ -869,28 +873,26 @@ function cmInit(){{
     adjSet[t+':'+s]=true;
   }});
 
-  // D3 force simulation
+  // D3 force simulation — Obsidian-style organic clustering
   var sim=d3.forceSimulation(nodes)
-    .force('link',d3.forceLink(edges).id(function(d){{return d.id;}}).distance(60).strength(0.3))
-    .force('charge',d3.forceManyBody().strength(-120).distanceMax(300))
-    .force('center',d3.forceCenter(W/2,H/2))
-    .force('collide',d3.forceCollide().radius(function(d){{return nodeR(d)+4;}}).strength(0.8));
+    .force('link',d3.forceLink(edges).id(function(d){{return d.id;}}).distance(75).strength(0.2))
+    .force('charge',d3.forceManyBody().strength(-130).distanceMin(8).distanceMax(380))
+    .force('center',d3.forceCenter(W/2,H/2).strength(0.04))
+    .force('collide',d3.forceCollide().radius(function(d){{return nodeR(d)+6;}}).strength(0.7))
+    .alphaDecay(0.012)
+    .velocityDecay(0.25);
 
-  // Pre-settle: run 300 ticks so layout starts settled
+  // Pre-settle: run 120 ticks for rough placement, animate the rest for organic feel
   sim.stop();
-  for(var t=0;t<300;t++)sim.tick();
+  for(var t=0;t<120;t++)sim.tick();
 
-  // Draw edges
+  // Draw edges — uniform muted purple-blue like Obsidian
   var edgeSel=edgeG.selectAll('line')
     .data(edges).enter().append('line')
     .attr('class','cm-edge')
-    .attr('stroke-width',0.8)
-    .attr('stroke-opacity',0.25)
-    .attr('stroke',function(d){{
-      var src=d.source;
-      var role=src.role||'utility';
-      return roleColor(role);
-    }});
+    .attr('stroke-width',0.7)
+    .attr('stroke-opacity',0.38)
+    .attr('stroke','#4a4080');
 
   // Draw nodes
   var nodeSel=nodeG.selectAll('circle')
@@ -915,17 +917,17 @@ function cmInit(){{
       }})
     );
 
-  // Draw labels (always-on for high-connectivity nodes, rest on hover)
-  var alwaysLabelThreshold=4;
+  // Draw labels — Obsidian light gray, whisper-soft
+  var alwaysLabelThreshold=3;
   var labelSel=labelG.selectAll('text')
     .data(nodes).enter().append('text')
     .attr('class','cm-label')
-    .attr('dy',function(d){{return nodeR(d)+12;}})
+    .attr('dy',function(d){{return nodeR(d)+11;}})
     .attr('text-anchor','middle')
-    .attr('font-size',10)
-    .attr('fill',function(d){{return roleColor(d.role);}})
+    .attr('font-size',9.5)
+    .attr('fill','#afaaca')
     .attr('pointer-events','none')
-    .attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.9:0;}})
+    .attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.85:0;}})
     .text(function(d){{
       var lbl=d.label||d.id;
       return lbl.length>20?lbl.slice(0,19)+'\u2026':lbl;
@@ -946,8 +948,8 @@ function cmInit(){{
       .attr('y',function(d){{return d.y;}});
   }});
 
-  // Let remaining ticks animate
-  sim.alphaDecay(0.02).restart();
+  // Let remaining ticks animate — slow organic settle
+  sim.alpha(0.6).restart();
 
   // Tooltip
   var tooltip=document.getElementById('code-map-tooltip');
@@ -996,8 +998,8 @@ function cmInit(){{
   nodeSel.on('mouseleave',function(){{
     tooltip.style.display='none';
     nodeSel.attr('opacity',1).attr('stroke-width',1.5).attr('filter','url(#node-glow)');
-    edgeSel.attr('stroke-opacity',0.25);
-    labelSel.attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.9:0;}});
+    edgeSel.attr('stroke-opacity',0.38);
+    labelSel.attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.85:0;}});
   }});
 
   // Click: scroll to module OR expand folder
@@ -1041,16 +1043,8 @@ function cmInit(){{
     location.reload(); // simplest stable approach for expansion
   }}
 
-  // Theme awareness: swap label/canvas color on theme toggle
-  var themeBtn=document.getElementById('theme-toggle');
-  if(themeBtn){{
-    themeBtn.addEventListener('click',function(){{
-      setTimeout(function(){{
-        var isDark=document.documentElement.getAttribute('data-theme')==='dark';
-        wrap.style.background=isDark?'#0d1117':'#f6f8fa';
-      }},50);
-    }});
-  }}
+  // Code map canvas stays dark regardless of site theme (Obsidian is always dark)
+  // No theme toggle listener needed — background is fixed.
 
   // Search (debounced 200ms)
   var searchTimer;
@@ -1060,8 +1054,8 @@ function cmInit(){{
     searchTimer=setTimeout(function(){{
       if(!q){{
         nodeSel.attr('opacity',1).attr('filter','url(#node-glow)');
-        edgeSel.attr('stroke-opacity',0.25);
-        labelSel.attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.9:0;}});
+        edgeSel.attr('stroke-opacity',0.38);
+        labelSel.attr('opacity',function(d){{return d.connectivity>=alwaysLabelThreshold?0.85:0;}});
         return;
       }}
       nodeSel.attr('opacity',function(d){{
@@ -1098,7 +1092,7 @@ function cmInit(){{
       edgeSel.attr('stroke-opacity',function(d){{
         var s=d.source.role||'utility';
         var t=d.target.role||'utility';
-        return (activeRoles.has(s)&&activeRoles.has(t))?0.25:0.03;
+        return (activeRoles.has(s)&&activeRoles.has(t))?0.38:0.04;
       }});
     }});
   }});
@@ -1149,8 +1143,13 @@ cmInit();
         for r in roles
     )
 
-    # Initial canvas background (dark by default — matches Obsidian)
-    canvas_bg = '#0d1117'
+    # Obsidian dark canvas — charcoal base with subtle nebula gradient
+    canvas_bg = '#1e1e1e'
+    canvas_style = (
+        'background:radial-gradient(ellipse at 25% 35%,rgba(100,80,200,0.07) 0%,transparent 55%),'
+        'radial-gradient(ellipse at 75% 65%,rgba(60,80,180,0.05) 0%,transparent 50%),'
+        '#1e1e1e'
+    )
 
     return f'''<section class="section" id="code-map">
   <p class="section-label">Code Map</p>
@@ -1173,7 +1172,7 @@ cmInit();
   <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-bottom:0.75rem;font-size:0.78rem;color:var(--text-secondary)">{stats_html}</div>
 
   <!-- Canvas wrapper -->
-  <div id="cm-wrap" style="position:relative;width:100%;height:620px;border-radius:12px;overflow:hidden;background:{canvas_bg}">
+  <div id="cm-wrap" style="position:relative;width:100%;height:620px;border-radius:12px;overflow:hidden;{canvas_style}">
     <svg id="cm-svg" width="100%" height="620" style="display:block">
       <defs></defs>
     </svg>
