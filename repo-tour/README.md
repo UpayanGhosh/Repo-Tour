@@ -53,7 +53,7 @@ Built-in: full-text search (Cmd/Ctrl+K), dark/light mode, three-column layout, m
 npx tldr-skill
 
 # Manual
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 cp -r tldr-skill/repo-tour ~/.claude/skills/tldr
 
 # Verify
@@ -67,7 +67,7 @@ ls ~/.claude/skills/tldr/SKILL.md
 npx tldr-skill
 
 # Manual
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 xcopy /E /I tldr-skill\repo-tour %USERPROFILE%\.claude\skills\tldr
 
 # Verify
@@ -85,7 +85,7 @@ OpenCode natively supports Anthropic-compatible skills — no adaptation needed,
 #### macOS / Linux
 
 ```bash
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 mkdir -p ~/.config/opencode/skills
 cp -r tldr-skill/repo-tour ~/.config/opencode/skills/tldr
 
@@ -96,7 +96,7 @@ ls ~/.config/opencode/skills/tldr/SKILL.md
 #### Windows
 
 ```powershell
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 mkdir -p %APPDATA%\opencode\skills
 xcopy /E /I tldr-skill\repo-tour %APPDATA%\opencode\skills\tldr
 
@@ -115,7 +115,7 @@ Gemini CLI uses the same Agent Skills open standard. Install to `~/.gemini/skill
 #### macOS / Linux
 
 ```bash
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 
 # Option A — Gemini-specific path
 mkdir -p ~/.gemini/skills
@@ -132,7 +132,7 @@ ls ~/.gemini/skills/tldr/SKILL.md
 #### Windows
 
 ```powershell
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 
 # Option A — Gemini-specific path
 mkdir -p %USERPROFILE%\.gemini\skills
@@ -157,7 +157,7 @@ Codex uses a different plugin manifest. The Python scripts work perfectly — on
 #### Step 1 — Clone
 
 ```bash
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 ```
 
 #### Step 2 — Install
@@ -192,7 +192,7 @@ Use the `~/.agents/skills/` shared alias — recognised by Gemini CLI, OpenCode,
 
 **macOS / Linux:**
 ```bash
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 
 # Shared alias (Gemini + OpenCode + others)
 mkdir -p ~/.agents/skills
@@ -205,7 +205,7 @@ cp -r tldr-skill/repo-tour ~/.claude/skills/tldr
 
 **Windows:**
 ```powershell
-git clone https://github.com/upayan/tldr-skill
+git clone https://github.com/UpayanGhosh/tldr-skill
 
 # Shared alias (Gemini + OpenCode + others)
 mkdir -p %USERPROFILE%\.agents\skills
