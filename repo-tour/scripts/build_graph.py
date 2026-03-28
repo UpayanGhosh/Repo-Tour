@@ -305,6 +305,16 @@ def resolve_import(import_str, source_rel, all_rel_paths_set):
         # Try as-is first
         if joined in all_rel_paths_set:
             return joined
+        # Handle TypeScript ESM: imports written as .js/.jsx that refer to .ts/.tsx source files
+        if joined.endswith('.js'):
+            stripped = joined[:-3]
+            for ext in ('.ts', '.tsx'):
+                if stripped + ext in all_rel_paths_set:
+                    return stripped + ext
+        elif joined.endswith('.jsx'):
+            stripped = joined[:-4]
+            if stripped + '.tsx' in all_rel_paths_set:
+                return stripped + '.tsx'
         # Try common extensions
         for ext in ('.ts', '.tsx', '.js', '.jsx', '.py', '/index.ts', '/index.js', '/index.tsx', '/index.jsx'):
             candidate = joined + ext
