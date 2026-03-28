@@ -151,6 +151,7 @@ def assemble(templates, sections_html, nav_html, search_index_js, analysis, proj
         '{{ARCHITECTURE}}':    sections_html.get('architecture', ''),
         '{{MINDMAP}}':         sections_html.get('mindmap', ''),
         '{{CODE_MAP}}':        sections_html.get('code_map', ''),
+        '{{BIRDS_EYE}}':       sections_html.get('birds_eye', ''),
         '{{CROSS_CUTTING}}':   sections_html.get('cross_cutting', ''),
         '{{TECH_STACK}}':      sections_html.get('tech_stack', ''),
         '{{ENTRY_POINTS}}':    sections_html.get('entry_points', ''),
@@ -1208,6 +1209,452 @@ cmInit();
 </section>'''
 
 
+def gen_birds_eye(analysis, graph_data, modules_content):
+    """Build interactive bird's eye view: zoomable treemap + sunburst toggle."""
+
+    # Build file tree from analysis paths (similar to gen_mindmap approach)
+    # Get all file paths from analysis
+    all_files = []
+    scan = analysis.get('scan', {})
+    top_dirs = scan.get('top_dirs', [])
+
+    # Collect files from graph_data nodes if available
+    if graph_data and graph_data.get('nodes'):
+        loc_by_path = {n.get('fullPath', n.get('id', '')): n.get('loc', 0)
+                       for n in graph_data['nodes'] if n.get('type') != 'folder'}
+        role_by_path = {n.get('fullPath', n.get('id', '')): n.get('role', 'utility')
+                        for n in graph_data['nodes'] if n.get('type') != 'folder'}
+        ext_by_path = {rel: ('.' + rel.rsplit('.', 1)[-1] if '.' in rel else '')
+                       for rel in loc_by_path}
+    else:
+        loc_by_path = {}
+        role_by_path = {}
+        ext_by_path = {}
+
+    if not loc_by_path:
+        return ''
+
+    # Build nested tree dict {name, children: [...]} from file paths
+    def insert_path(tree, parts, rel_path, loc, role):
+        if not parts:
+            return
+        name = parts[0]
+        if len(parts) == 1:
+            # Leaf node (file)
+            tree.setdefault('children', []).append({
+                'name': name,
+                'path': rel_path,
+                'loc': max(loc, 1),
+                'role': role,
+                'type': 'file',
+            })
+        else:
+            # Directory node
+            for child in tree.get('children', []):
+                if child.get('name') == name and child.get('type') == 'dir':
+                    insert_path(child, parts[1:], rel_path, loc, role)
+                    return
+            new_dir = {'name': name, 'type': 'dir', 'children': []}
+            tree.setdefault('children', []).append(new_dir)
+            insert_path(new_dir, parts[1:], rel_path, loc, role)
+
+    root_tree = {'name': 'root', 'type': 'dir', 'children': []}
+    for rel_path, loc in sorted(loc_by_path.items()):
+        parts = rel_path.replace('\\', '/').split('/')
+        role = role_by_path.get(rel_path, 'utility')
+        insert_path(root_tree, parts, rel_path, loc, role)
+
+    if not root_tree.get('children'):
+        return ''
+
+    # Compute stats
+    total_files = len(loc_by_path)
+    total_loc = sum(loc_by_path.values())
+
+    # Extension breakdown (top 5)
+    ext_counts = {}
+    for rel in loc_by_path:
+        ext = '.' + rel.rsplit('.', 1)[-1] if '.' in rel.split('/')[-1] else 'other'
+        ext_counts[ext] = ext_counts.get(ext, 0) + loc_by_path[rel]
+    top_exts = sorted(ext_counts.items(), key=lambda x: -x[1])[:6]
+
+    import json as _json
+    tree_json = _json.dumps(root_tree, separators=(',', ':'))
+
+    # Extension color map (subset of LANGUAGE_COLORS for common ones)
+    ext_color_map = _json.dumps({
+        '.ts': '#3178c6', '.tsx': '#61dafb', '.js': '#f7df1e', '.jsx': '#61dafb',
+        '.py': '#3572A5', '.go': '#00ADD8', '.rs': '#dea584', '.java': '#b07219',
+        '.rb': '#701516', '.php': '#4F5D95', '.cs': '#178600', '.cpp': '#f34b7d',
+        '.c': '#555555', '.kt': '#A97BFF', '.swift': '#F05138', '.vue': '#41b883',
+        '.svelte': '#FF3E00', '.html': '#e34c26', '.css': '#563d7c', '.scss': '#c6538c',
+        '.json': '#f1c40f', '.yaml': '#cb171e', '.yml': '#cb171e', '.md': '#083fa1',
+        '.sh': '#89e051', '.sql': '#e38c00',
+    }, separators=(',', ':'))
+
+    # Build stats bar HTML
+    stats_parts = []
+    for ext, loc_val in top_exts:
+        pct = round(loc_val / max(total_loc, 1) * 100, 1)
+        stats_parts.append(f'<span class="be-ext-seg" style="width:{pct}%;background:var(--be-ext-{ext.lstrip(".")},#6b7280)" title="{ext}: {loc_val:,} LOC ({pct}%)"></span>')
+    lang_bar = ''.join(stats_parts)
+
+    # Build legend HTML
+    role_colors = {
+        'service': '#7c6fcd', 'route': '#6fa3d4', 'model': '#6fcd99',
+        'utility': '#9e8ecf', 'config': '#c9b86c', 'middleware': '#a06fcd',
+        'test': '#6f8fcd', 'folder': '#b0a0e8',
+    }
+    legend_html = ''.join(
+        f'<span class="be-legend-item"><span class="be-legend-dot" style="background:{color}"></span>{role}</span>'
+        for role, color in role_colors.items()
+    )
+
+    role_colors_js = _json.dumps(role_colors, separators=(',', ':'))
+
+    return f'''
+<section class="section" id="birds-eye">
+  <p class="section-label">Bird\'s Eye View</p>
+  <h2 class="section-title">Codebase at a Glance</h2>
+  <p class="section-subtitle">Spatial overview of {total_files:,} files · {total_loc:,} lines of code. Rectangle size = LOC. Click directories to zoom in.</p>
+
+  <div id="be-stats" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+    <span class="be-stat">{total_files:,} files</span>
+    <span class="be-stat">{total_loc:,} LOC</span>
+    <div id="be-lang-bar" style="flex:1;min-width:120px;height:8px;border-radius:4px;overflow:hidden;display:flex;background:#2a2a3a;">{lang_bar}</div>
+  </div>
+
+  <div id="be-controls" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+    <button class="be-mode-btn active" data-mode="treemap" onclick="beSetMode(\'treemap\')">Treemap</button>
+    <button class="be-mode-btn" data-mode="sunburst" onclick="beSetMode(\'sunburst\')">Sunburst</button>
+    <div id="be-breadcrumb" style="margin-left:12px;font-size:12px;color:#8b8ba8;display:flex;align-items:center;gap:4px;flex-wrap:wrap;"></div>
+  </div>
+
+  <div id="be-wrap" style="position:relative;width:100%;height:540px;border-radius:12px;overflow:hidden;background:radial-gradient(ellipse at 25% 35%,rgba(100,80,200,.07) 0%,transparent 55%),radial-gradient(ellipse at 75% 65%,rgba(60,80,180,.05) 0%,transparent 50%),#1a1a2e;">
+    <svg id="be-svg" width="100%" height="540" style="display:block;"></svg>
+    <div id="be-tooltip" style="display:none;position:absolute;pointer-events:none;background:rgba(20,20,35,.92);backdrop-filter:blur(8px);border:1px solid rgba(120,100,220,.25);border-radius:8px;padding:10px 14px;font-size:12px;color:#d4d0f0;max-width:260px;z-index:10;box-shadow:0 4px 24px rgba(0,0,0,.5);"></div>
+    <div id="be-fallback" style="display:none;padding:20px;color:#8b8ba8;font-size:13px;">Bird\'s eye view requires D3.js. <a href="#code-map" style="color:#7c6fcd;">See the Code Map</a> instead.</div>
+  </div>
+
+  <div id="be-legend" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;font-size:11px;color:#8b8ba8;">
+    {legend_html}
+    <span style="margin-left:auto;color:#6b6b85;font-size:10px;">rectangle size = lines of code</span>
+  </div>
+
+  <style>
+    .be-mode-btn{{border:1px solid rgba(120,100,220,.35);background:transparent;color:#9090b8;border-radius:6px;padding:5px 14px;font-size:12px;cursor:pointer;transition:all .15s;}}
+    .be-mode-btn.active,.be-mode-btn:hover{{background:rgba(124,111,205,.18);color:#c8c0f0;border-color:rgba(124,111,205,.6);}}
+    .be-stat{{font-size:12px;color:#8b8ba8;padding:2px 8px;border:1px solid rgba(120,100,220,.2);border-radius:4px;}}
+    .be-legend-item{{display:flex;align-items:center;gap:5px;}}
+    .be-legend-dot{{width:9px;height:9px;border-radius:50%;flex-shrink:0;}}
+    .be-ext-seg{{height:100%;min-width:2px;transition:opacity .15s;}}
+    .be-ext-seg:hover{{opacity:.7;}}
+    #be-breadcrumb span{{cursor:pointer;color:#7c6fcd;}}
+    #be-breadcrumb span:hover{{text-decoration:underline;}}
+    #be-breadcrumb .be-crumb-sep{{color:#4a4a6a;cursor:default;}}
+  </style>
+
+  <script>
+  (function(){{
+    var BE_TREE={tree_json};
+    var BE_ROLE_COLORS={role_colors_js};
+    var BE_EXT_COLORS={ext_color_map};
+    var beCurrentMode='treemap';
+    var beCurrentNode=null; // zoomed-in node
+    var bePath=[]; // breadcrumb path
+
+    function beNodeColor(d){{
+      if(d.data.role&&BE_ROLE_COLORS[d.data.role])return BE_ROLE_COLORS[d.data.role];
+      if(d.data.name){{
+        var dot=d.data.name.lastIndexOf('.');
+        if(dot>0){{var ext=d.data.name.slice(dot);if(BE_EXT_COLORS[ext])return BE_EXT_COLORS[ext];}}
+      }}
+      return '#6b7080';
+    }}
+
+    function beInit(){{
+      if(typeof d3==='undefined'||window.D3_FAILED){{
+        document.getElementById('be-fallback').style.display='block';
+        document.getElementById('be-svg').style.display='none';
+        return;
+      }}
+      beRenderTreemap(BE_TREE, []);
+    }}
+
+    // ---- TREEMAP ----
+    function beRenderTreemap(dataNode, pathArr){{
+      var wrap=document.getElementById('be-wrap');
+      var W=wrap.clientWidth||700, H=wrap.clientHeight||540;
+      var svg=d3.select('#be-svg');
+      svg.selectAll('*').remove();
+      svg.attr('width',W).attr('height',H);
+
+      var root=d3.hierarchy(dataNode)
+        .sum(function(d){{return d.loc||0;}})
+        .sort(function(a,b){{return b.value-a.value;}});
+
+      d3.treemap()
+        .size([W,H])
+        .paddingOuter(4)
+        .paddingTop(20)
+        .paddingInner(1)
+        .round(true)(root);
+
+      // If zoomed in, find the target node
+      var displayRoot=root;
+      if(pathArr.length>0){{
+        var cur=root;
+        for(var i=0;i<pathArr.length;i++){{
+          var found=null;
+          if(cur.children){{
+            for(var j=0;j<cur.children.length;j++){{
+              if(cur.children[j].data.name===pathArr[i]){{found=cur.children[j];break;}}
+            }}
+          }}
+          if(found)cur=found;else break;
+        }}
+        displayRoot=cur;
+      }}
+
+      // Scale coordinates to fit the zoomed node
+      var scaleX=d3.scaleLinear().domain([displayRoot.x0,displayRoot.x1]).range([0,W]);
+      var scaleY=d3.scaleLinear().domain([displayRoot.y0,displayRoot.y1]).range([0,H]);
+
+      var g=svg.append('g');
+
+      // Render all descendants of displayRoot
+      var nodes=(displayRoot.children?displayRoot.descendants().slice(1):displayRoot.descendants());
+
+      var cell=g.selectAll('g.be-cell')
+        .data(nodes)
+        .enter().append('g')
+        .attr('class','be-cell')
+        .attr('transform',function(d){{return 'translate('+scaleX(d.x0)+','+scaleY(d.y0)+')';}})
+        .style('cursor',function(d){{return (d.data.type==='dir'&&d.children)?'pointer':'default';}});
+
+      cell.append('rect')
+        .attr('width',function(d){{return Math.max(0,scaleX(d.x1)-scaleX(d.x0)-1);}})
+        .attr('height',function(d){{return Math.max(0,scaleY(d.y1)-scaleY(d.y0)-1);}})
+        .attr('fill',function(d){{
+          if(d.data.type==='dir')return 'rgba(30,30,50,.6)';
+          return beNodeColor(d);
+        }})
+        .attr('fill-opacity',function(d){{return d.data.type==='dir'?1:0.75;}})
+        .attr('stroke',function(d){{return d.data.type==='dir'?'rgba(120,100,220,.25)':'none';}})
+        .attr('stroke-width',1)
+        .attr('rx',2);
+
+      // Directory label
+      cell.filter(function(d){{return d.data.type==='dir'&&d.children;}})
+        .append('text')
+        .attr('x',4).attr('y',13)
+        .attr('font-size','10px').attr('fill','#afaaca').attr('font-weight','600')
+        .text(function(d){{
+          var w=scaleX(d.x1)-scaleX(d.x0);
+          var label=d.data.name;
+          if(label.length*6>w-8)label=label.slice(0,Math.floor((w-12)/6))+'…';
+          return label;
+        }});
+
+      // File label (only if cell is big enough)
+      cell.filter(function(d){{
+          var w=scaleX(d.x1)-scaleX(d.x0);
+          var h=scaleY(d.y1)-scaleY(d.y0);
+          return d.data.type==='file'&&w>40&&h>18;
+        }})
+        .append('text')
+        .attr('x',function(d){{return (scaleX(d.x1)-scaleX(d.x0))/2;}})
+        .attr('y',function(d){{return (scaleY(d.y1)-scaleY(d.y0))/2+3;}})
+        .attr('text-anchor','middle').attr('font-size','9px').attr('fill','rgba(255,255,255,.7)')
+        .text(function(d){{
+          var w=scaleX(d.x1)-scaleX(d.x0);
+          var label=d.data.name;
+          if(label.length*5.5>w-6)label=label.slice(0,Math.floor((w-10)/5.5))+'…';
+          return label;
+        }});
+
+      // Tooltip
+      var tooltip=document.getElementById('be-tooltip');
+      cell.on('mousemove',function(event,d){{
+        var loc=d.data.loc||d.value||0;
+        var html='<strong style="color:#d4d0f0;">'+d.data.name+'</strong>';
+        if(d.data.path)html+='<br><span style="color:#6b6b85;font-size:10px;">'+d.data.path+'</span>';
+        html+='<br><span style="color:#9090b8;">'+loc.toLocaleString()+' LOC</span>';
+        if(d.data.role)html+=' · <span style="color:'+beNodeColor(d)+'">'+d.data.role+'</span>';
+        tooltip.innerHTML=html;
+        tooltip.style.display='block';
+        var rect=document.getElementById('be-wrap').getBoundingClientRect();
+        var tx=event.clientX-rect.left+12, ty=event.clientY-rect.top-10;
+        if(tx+270>W)tx=event.clientX-rect.left-280;
+        tooltip.style.left=tx+'px';tooltip.style.top=ty+'px';
+      }}).on('mouseleave',function(){{tooltip.style.display='none';}});
+
+      // Click to zoom into directories
+      cell.filter(function(d){{return d.data.type==='dir'&&d.children;}})
+        .on('click',function(event,d){{
+          event.stopPropagation();
+          var newPath=pathArr.concat([d.data.name]);
+          bePath=newPath;
+          beUpdateBreadcrumb(newPath);
+          beRenderTreemap(BE_TREE,newPath);
+        }});
+
+      beUpdateBreadcrumb(pathArr);
+    }}
+
+    // ---- SUNBURST ----
+    function beRenderSunburst(){{
+      var wrap=document.getElementById('be-wrap');
+      var W=wrap.clientWidth||700, H=wrap.clientHeight||540;
+      var R=Math.min(W,H)/2-16;
+      var svg=d3.select('#be-svg');
+      svg.selectAll('*').remove();
+      svg.attr('width',W).attr('height',H);
+
+      var root=d3.hierarchy(BE_TREE)
+        .sum(function(d){{return d.loc||0;}})
+        .sort(function(a,b){{return b.value-a.value;}});
+
+      d3.partition().size([2*Math.PI,R])(root);
+
+      var arc=d3.arc()
+        .startAngle(function(d){{return d.x0;}})
+        .endAngle(function(d){{return d.x1;}})
+        .innerRadius(function(d){{return d.depth===0?0:d.y0+2;}})
+        .outerRadius(function(d){{return d.y1-2;}});
+
+      var g=svg.append('g').attr('transform','translate('+W/2+','+H/2+')');
+
+      // Rotation state
+      var rotation=0;
+      var dragStart=null;
+
+      var gRotate=g.append('g');
+
+      var path=gRotate.selectAll('path')
+        .data(root.descendants().filter(function(d){{return d.depth>0&&(d.x1-d.x0)>0.003;}}))
+        .enter().append('path')
+        .attr('d',arc)
+        .attr('fill',function(d){{
+          if(d.data.type==='dir')return 'rgba(40,40,60,.8)';
+          return beNodeColor(d);
+        }})
+        .attr('fill-opacity',function(d){{return d.data.type==='dir'?0.5:0.8;}})
+        .attr('stroke','rgba(20,20,40,.6)')
+        .attr('stroke-width',0.5)
+        .style('cursor','pointer');
+
+      // Labels for large arcs
+      gRotate.selectAll('text')
+        .data(root.descendants().filter(function(d){{
+          return d.depth>0&&(d.x1-d.x0)>0.15&&d.y1-d.y0>12;
+        }}))
+        .enter().append('text')
+        .attr('transform',function(d){{
+          var angle=(d.x0+d.x1)/2*180/Math.PI-90;
+          var r=(d.y0+d.y1)/2;
+          return 'rotate('+angle+') translate('+r+',0) rotate('+(angle>90&&angle<270?180:0)+')';
+        }})
+        .attr('text-anchor','middle').attr('font-size','9px').attr('fill','rgba(220,215,255,.75)')
+        .attr('pointer-events','none')
+        .text(function(d){{
+          var arc_len=(d.x1-d.x0)*(d.y0+d.y1)/2;
+          var label=d.data.name;
+          var maxCh=Math.floor(arc_len/6);
+          return label.length>maxCh?label.slice(0,maxCh-1)+'…':label;
+        }});
+
+      // Drag to rotate
+      var drag=d3.drag()
+        .on('start',function(event){{dragStart=event.x;}})
+        .on('drag',function(event){{
+          var dx=event.x-dragStart;
+          dragStart=event.x;
+          rotation+=dx*0.5;
+          gRotate.attr('transform','rotate('+rotation+')');
+        }});
+      svg.call(drag);
+
+      // Tooltip
+      var tooltip=document.getElementById('be-tooltip');
+      path.on('mousemove',function(event,d){{
+        var loc=d.data.loc||d.value||0;
+        var html='<strong style="color:#d4d0f0;">'+d.data.name+'</strong>';
+        if(d.data.path)html+='<br><span style="color:#6b6b85;font-size:10px;">'+d.data.path+'</span>';
+        html+='<br><span style="color:#9090b8;">'+loc.toLocaleString()+' LOC</span>';
+        if(d.data.role)html+=' · <span style="color:'+beNodeColor(d)+'">'+d.data.role+'</span>';
+        tooltip.innerHTML=html;
+        tooltip.style.display='block';
+        var rect=document.getElementById('be-wrap').getBoundingClientRect();
+        var tx=event.clientX-rect.left+12, ty=event.clientY-rect.top-10;
+        if(tx+270>W)tx=event.clientX-rect.left-280;
+        tooltip.style.left=tx+'px';tooltip.style.top=ty+'px';
+      }}).on('mouseleave',function(){{tooltip.style.display='none';}});
+    }}
+
+    // ---- Breadcrumb ----
+    function beUpdateBreadcrumb(pathArr){{
+      var bc=document.getElementById('be-breadcrumb');
+      if(!bc)return;
+      var parts=[{{label:'root',path:[]}}];
+      for(var i=0;i<pathArr.length;i++){{
+        parts.push({{label:pathArr[i],path:pathArr.slice(0,i+1)}});
+      }}
+      bc.innerHTML=parts.map(function(p,i){{
+        var sep=i>0?'<span class="be-crumb-sep"> / </span>':'';
+        var isCurrent=(i===parts.length-1);
+        if(isCurrent)return sep+'<span style="color:#d4d0f0;">'+p.label+'</span>';
+        var pathJson=JSON.stringify(p.path);
+        return sep+'<span onclick="beZoomTo('+pathJson+')">'+p.label+'</span>';
+      }}).join('');
+    }}
+
+    window.beZoomTo=function(pathArr){{
+      bePath=pathArr;
+      beUpdateBreadcrumb(pathArr);
+      beRenderTreemap(BE_TREE,pathArr);
+    }};
+
+    window.beSetMode=function(mode){{
+      beCurrentMode=mode;
+      document.querySelectorAll('.be-mode-btn').forEach(function(b){{
+        b.classList.toggle('active',b.dataset.mode===mode);
+      }});
+      if(mode==='treemap')beRenderTreemap(BE_TREE,bePath);
+      else beRenderSunburst();
+    }};
+
+    // Init on D3 ready
+    if(typeof d3!=='undefined'){{
+      beInit();
+    }} else {{
+      var d3script=document.querySelector('script[src*="d3"]');
+      if(d3script){{
+        d3script.addEventListener('load',beInit);
+        d3script.addEventListener('error',function(){{
+          document.getElementById('be-fallback').style.display='block';
+          document.getElementById('be-svg').style.display='none';
+        }});
+      }} else {{
+        setTimeout(beInit,800);
+      }}
+    }}
+
+    // Re-render on resize
+    var beResizeTimer;
+    window.addEventListener('resize',function(){{
+      clearTimeout(beResizeTimer);
+      beResizeTimer=setTimeout(function(){{
+        if(beCurrentMode==='treemap')beRenderTreemap(BE_TREE,bePath);
+        else beRenderSunburst();
+      }},200);
+    }});
+  }})();
+  </script>
+</section>
+'''
+
+
 def gen_cookbook(data):
     if not data:
         return ''
@@ -1385,6 +1832,14 @@ def build_search_index(content):
             text = ' '.join(filter(None, [recipe.get('title', ''), ' '.join(recipe.get('steps') or [])]))
             add('Cookbook — ' + recipe.get('title', ''), text, 'cookbook')
 
+    # Bird's Eye View (static entry — content is generated from graph data, not content JSON)
+    entries.append({
+        'id': 'birds-eye',
+        'section': "Bird's Eye View",
+        'text': "bird's eye view treemap sunburst codebase spatial overview LOC files",
+        'snippet': 'Interactive treemap and sunburst visualization showing codebase structure and file sizes.',
+    })
+
     return json.dumps(entries)
 
 
@@ -1395,6 +1850,7 @@ def build_navigation(content, has_mindmap=False, has_codemap=False):
         ('architecture',   'architecture',   'Architecture'),
         ('mindmap',        'codebase-map',   'Codebase Map'),
         ('code_map',       'code-map',       'Code Map'),
+        ('birds_eye',      'birds-eye',      "Bird's Eye View"),
         ('cross_cutting',  'cross-cutting',  'Cross-Cutting Concerns'),
         ('tech_stack',     'tech-stack',     'Tech Stack'),
         ('entry_points',   'entry-points',   'Entry Points'),
@@ -1621,6 +2077,7 @@ def main():
         'architecture':   gen_architecture(content.get('architecture')),
         'mindmap':        mindmap_html,
         'code_map':       gen_code_map(graph_data, content.get('modules')),
+        'birds_eye':      gen_birds_eye(analysis, graph_data, content.get('modules')),
         'cross_cutting':  gen_cross_cutting(content.get('cross_cutting')),
         'tech_stack':     gen_tech_stack(content.get('tech_stack')),
         'entry_points':   gen_entry_points(content.get('entry_points')),

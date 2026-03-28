@@ -11,6 +11,7 @@ import sys
 import re
 import json
 import argparse
+from collections import Counter
 from pathlib import Path
 
 # ============================================================
@@ -292,17 +293,103 @@ def parse_imports(content, rel_path, language):
 # Import resolution
 # ============================================================
 
-def resolve_import(import_str, source_rel, all_rel_paths_set):
+def load_path_aliases(repo_path):
+    """Read path aliases from tsconfig.json or jsconfig.json.
+
+    Returns dict mapping alias prefix -> target directory, e.g.:
+        {"@": "src", "~": "src"}
+    """
+    aliases = {}
+    for config_name in ('tsconfig.json', 'jsconfig.json'):
+        config_path = os.path.join(repo_path, config_name)
+        if not os.path.isfile(config_path):
+            continue
+        try:
+            with open(config_path, encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            # Strip single-line comments
+            content = re.sub(r'//[^\n]*', '', content)
+            # Strip trailing commas before } or ]
+            content = re.sub(r',(\s*[}\]])', r'\1', content)
+            config = json.loads(content)
+        except Exception:
+            continue
+        base_url = config.get('compilerOptions', {}).get('baseUrl', '.')
+        paths = config.get('compilerOptions', {}).get('paths', {})
+        for alias_pattern, targets in paths.items():
+            if not targets:
+                continue
+            # alias_pattern like "@/*" or "@/components/*"
+            alias_prefix = alias_pattern.rstrip('/*').rstrip('/')
+            target_dir = targets[0].rstrip('/*').rstrip('/')
+            # Resolve target relative to baseUrl
+            resolved = os.path.normpath(os.path.join(base_url, target_dir)).replace('\\', '/')
+            if resolved.startswith('./'):
+                resolved = resolved[2:]
+            if alias_prefix:
+                aliases[alias_prefix] = resolved
+        break  # Use first found config
+    return aliases
+
+
+def load_go_module_name(repo_path):
+    """Read the module name from go.mod, e.g., 'github.com/user/myproject'."""
+    gomod = os.path.join(repo_path, 'go.mod')
+    if not os.path.isfile(gomod):
+        return None
+    try:
+        with open(gomod, encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                m = re.match(r'^module\s+(\S+)', line.strip())
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def resolve_import(import_str, source_rel, all_rel_paths_set,
+                   suffix_index=None, path_aliases=None,
+                   go_module=None, dir_index=None):
     """Resolve an import string to a rel_path in the repo, or None if external."""
     if not import_str:
         return None
 
-    # Only resolve relative imports (starting with . or ..)
+    # Python-style relative imports: .module, ..module, ...pkg.module
+    # Distinguished from JS ./path by: starts with '.' but NOT './' or '../'
+    if import_str.startswith('.') and not import_str.startswith('./') and not import_str.startswith('../'):
+        dots = 0
+        for ch in import_str:
+            if ch == '.':
+                dots += 1
+            else:
+                break
+        module_part = import_str[dots:]  # e.g. "models" from ".models", "" from "."
+        source_dir = os.path.dirname(source_rel).replace('\\', '/')
+        # Go up (dots - 1) levels: 1 dot = same dir, 2 dots = parent dir, etc.
+        base_dir = source_dir
+        for _ in range(dots - 1):
+            parent = os.path.dirname(base_dir)
+            base_dir = parent.replace('\\', '/') if parent else ''
+        if module_part:
+            mod_path = module_part.replace('.', '/')
+            joined = (base_dir + '/' + mod_path).lstrip('/') if base_dir else mod_path
+        else:
+            # "from . import X" — refers to __init__.py in current dir
+            joined = base_dir
+        joined = joined.replace('\\', '/')
+        if joined in all_rel_paths_set:
+            return joined
+        for ext in ('.py', '/__init__.py'):
+            candidate = joined + ext
+            if candidate in all_rel_paths_set:
+                return candidate
+        return None
+
+    # JS/TS relative imports: ./path or ../path
     if import_str.startswith('./') or import_str.startswith('../'):
         source_dir = os.path.dirname(source_rel)
-        # Normalize to forward slashes
         joined = os.path.normpath(os.path.join(source_dir, import_str)).replace('\\', '/')
-        # Try as-is first
         if joined in all_rel_paths_set:
             return joined
         # Handle TypeScript ESM: imports written as .js/.jsx that refer to .ts/.tsx source files
@@ -322,12 +409,44 @@ def resolve_import(import_str, source_rel, all_rel_paths_set):
                 return candidate
         return None
 
-    # Non-relative but contains slash and not an npm-scoped package (@org/pkg)
+    # Path alias resolution: @/components/X, ~/utils/Y, etc.
+    if path_aliases:
+        for alias_prefix, target_prefix in path_aliases.items():
+            if import_str == alias_prefix or import_str.startswith(alias_prefix + '/'):
+                remainder = import_str[len(alias_prefix):].lstrip('/')
+                resolved = (target_prefix + '/' + remainder).rstrip('/') if remainder else target_prefix
+                resolved = resolved.replace('\\', '/')
+                if resolved in all_rel_paths_set:
+                    return resolved
+                for ext in ('.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.js', '/index.tsx', '/index.jsx'):
+                    candidate = resolved + ext
+                    if candidate in all_rel_paths_set:
+                        return candidate
+                return None
+
+    # Go module-prefixed imports: strip module path, resolve remainder via dir_index
+    if go_module and import_str.startswith(go_module + '/') and dir_index is not None:
+        remainder = import_str[len(go_module) + 1:]  # e.g. "internal/auth"
+        remainder = remainder.replace('\\', '/')
+        if remainder in dir_index:
+            return dir_index[remainder]
+        return None
+
+    # Non-relative with slash (not @-scoped package): try suffix match
     if '/' in import_str and not import_str.startswith('@'):
-        # Try to match by suffix
-        for rel in all_rel_paths_set:
-            if rel.endswith(import_str) or import_str in rel:
+        # Try to match by suffix (deterministic: first sorted match)
+        norm = import_str.replace('\\', '/')
+        for rel in sorted(all_rel_paths_set):
+            if rel.endswith(norm) or norm in rel:
                 return rel
+        return None
+
+    # Python absolute intra-project imports: "mypackage.models" -> "mypackage/models.py"
+    if '.' in import_str and '/' not in import_str and not import_str.startswith('.'):
+        if suffix_index is not None:
+            mod_path = import_str.replace('.', '/')
+            if mod_path in suffix_index:
+                return suffix_index[mod_path]
         return None
 
     # External / npm / stdlib — skip
@@ -338,14 +457,37 @@ def resolve_import(import_str, source_rel, all_rel_paths_set):
 # Graph construction
 # ============================================================
 
-def build_adjacency(files, language):
-    """Build adjacency dict: {rel_path: set_of_target_rel_paths}."""
+def build_adjacency(files, language, repo_path):
+    """Build adjacency dict: {rel_path: Counter of target_rel_paths with counts}."""
     all_rel_paths_set = {f['rel'] for f in files}
-    adjacency = {f['rel']: set() for f in files}
+    adjacency = {f['rel']: Counter() for f in files}
+
+    # Build suffix index for Python absolute import resolution
+    # Maps 'module/path' -> rel_path for all suffixes of each file's stem
+    suffix_index = {}
+    for rel in all_rel_paths_set:
+        stem = rel.rsplit('.', 1)[0]  # strip extension
+        parts = stem.replace('\\', '/').split('/')
+        for i in range(len(parts)):
+            key = '/'.join(parts[i:])
+            if key and key not in suffix_index:
+                suffix_index[key] = rel
+
+    # Build dir_index for Go module path resolution
+    # Maps directory path -> first file in that directory
+    dir_index = {}
+    for rel in all_rel_paths_set:
+        d = os.path.dirname(rel).replace('\\', '/')
+        if d not in dir_index:
+            dir_index[d] = rel
+
+    # Load tsconfig/jsconfig path aliases
+    path_aliases = load_path_aliases(repo_path)
+
+    # Load Go module name
+    go_module = load_go_module_name(repo_path)
 
     for file_meta in files:
-        # Jupyter notebooks are JSON — parse_imports_notebook reads the file
-        # directly using the absolute path. Skip the normal content read.
         if file_meta['rel'].endswith('.ipynb'):
             imports = parse_imports_notebook(file_meta['path'])
         else:
@@ -356,9 +498,15 @@ def build_adjacency(files, language):
                 continue
             imports = parse_imports(content, file_meta['rel'], language)
         for imp in imports:
-            target = resolve_import(imp, file_meta['rel'], all_rel_paths_set)
+            target = resolve_import(
+                imp, file_meta['rel'], all_rel_paths_set,
+                suffix_index=suffix_index,
+                path_aliases=path_aliases,
+                go_module=go_module,
+                dir_index=dir_index,
+            )
             if target and target != file_meta['rel']:
-                adjacency[file_meta['rel']].add(target)
+                adjacency[file_meta['rel']][target] += 1
 
     return adjacency
 
@@ -378,8 +526,8 @@ def score_connectivity(files, adjacency):
     scores = {}
     for rel in all_rels:
         bi = sum(
-            1 for tgt in adjacency.get(rel, set())
-            if rel in adjacency.get(tgt, set())
+            1 for tgt in adjacency.get(rel, {})
+            if rel in adjacency.get(tgt, {})
         )
         scores[rel] = in_degree[rel] + out_degree[rel] + 2 * bi
 
@@ -473,7 +621,7 @@ def build_folder_nodes(collapsed_set, adjacency, selected_set, files_meta):
 
         # Inherited edges: collapsed file → selected target
         for rel in rels:
-            for target in adjacency.get(rel, set()):
+            for target in adjacency.get(rel, {}):
                 if target in selected_set:
                     edge_key = (folder_id, target)
                     if edge_key not in seen_edges:
@@ -483,6 +631,26 @@ def build_folder_nodes(collapsed_set, adjacency, selected_set, files_meta):
                             'target': target,
                             'weight': 1,
                         })
+
+    # Reverse inherited edges: selected -> collapsed -> redirect to folder
+    collapsed_to_folder = {}
+    for folder, rels in files_by_folder.items():
+        folder_id = f'folder:{folder}'
+        for rel in rels:
+            collapsed_to_folder[rel] = folder_id
+
+    for src in selected_set:
+        for tgt in adjacency.get(src, {}):
+            if tgt in collapsed_to_folder:
+                folder_id = collapsed_to_folder[tgt]
+                edge_key = (src, folder_id)
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    folder_edges.append({
+                        'source': src,
+                        'target': folder_id,
+                        'weight': 1,
+                    })
 
     return folder_nodes, folder_edges
 
@@ -531,24 +699,14 @@ def build_output(selected_files, folder_nodes, adjacency, selected_set, files_me
         nodes.append({k: v for k, v in fn.items() if k != 'children_meta'})
 
     # Build edges between selected nodes
-    seen_edges = set()
     edges = []
-    edge_weight = {}
     for src, targets in adjacency.items():
         if src not in selected_set:
             continue
-        for tgt in targets:
+        for tgt, weight in targets.items():
             if tgt not in selected_set:
                 continue
-            key = (src, tgt)
-            if key in seen_edges:
-                edge_weight[key] = edge_weight.get(key, 1) + 1
-            else:
-                seen_edges.add(key)
-                edge_weight[key] = 1
-
-    for (src, tgt), weight in edge_weight.items():
-        edges.append({'source': src, 'target': tgt, 'weight': weight})
+            edges.append({'source': src, 'target': tgt, 'weight': weight})
 
     # Append folder edges
     for fe in folder_edges:
@@ -560,7 +718,7 @@ def build_output(selected_files, folder_nodes, adjacency, selected_set, files_me
         children = fn.get('children_meta', [])
         exp_edges = []
         for child in children:
-            for tgt in adjacency.get(child['id'], set()):
+            for tgt in adjacency.get(child['id'], {}):
                 exp_edges.append({'source': child['id'], 'target': tgt, 'weight': 1})
         folder_expansions[fn['id']] = {
             'nodes': children,
@@ -626,12 +784,29 @@ def progressive_cap(output, max_kb=500):
                     'directory':    os.path.dirname(folder).replace('\\', '/'),
                 })
 
-        # Remove folded nodes and their edges
+        # Build mapping: removed node → folder node id
+        node_to_folder = {}
+        for folder, rels in by_folder.items():
+            folder_id = f'folder:{folder}'
+            for nid in rels:
+                node_to_folder[nid] = folder_id
+
+        # Redirect edges to folder nodes instead of deleting
+        new_edges = []
+        seen_redirected = set()
+        for e in output['edges']:
+            src = node_to_folder.get(e['source'], e['source'])
+            tgt = node_to_folder.get(e['target'], e['target'])
+            if src == tgt:
+                continue  # skip self-loops from folding
+            edge_key = (src, tgt)
+            if edge_key not in seen_redirected:
+                seen_redirected.add(edge_key)
+                new_edges.append({'source': src, 'target': tgt, 'weight': e.get('weight', 1)})
+        output['edges'] = new_edges
+
+        # Remove folded nodes
         output['nodes'] = [n for n in output['nodes'] if n['id'] not in remove_set]
-        output['edges'] = [
-            e for e in output['edges']
-            if e['source'] not in remove_set and e['target'] not in remove_set
-        ]
 
         output['_meta']['nodes_in_graph'] = len(output['nodes'])
         output['_meta']['edges_in_graph'] = len(output['edges'])
@@ -674,7 +849,7 @@ def main():
         return
 
     # Build graph
-    adjacency  = build_adjacency(files, args.language)
+    adjacency  = build_adjacency(files, args.language, repo_path)
     scores     = score_connectivity(files, adjacency)
 
     # Enrich files with scores/tier
